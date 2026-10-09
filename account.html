@@ -27,9 +27,7 @@
 
     body {
       margin: 0;
-      background:
-        radial-gradient(ellipse at 80% -10%, rgba(121, 112, 255, .12), transparent 34rem),
-        var(--wash);
+      background: radial-gradient(ellipse at 80% -10%, rgba(121, 112, 255, .12), transparent 34rem), var(--wash);
       color: var(--ink);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.55;
@@ -94,12 +92,6 @@
     p { margin-top: 10px; }
     .muted { color: var(--muted); }
 
-    .auth-grid, .plans-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 18px;
-    }
-
     .card {
       padding: 26px;
       border: 1px solid var(--line);
@@ -108,10 +100,19 @@
       box-shadow: var(--shadow);
     }
 
+    .auth-card { max-width: 560px; }
     .card-heading { margin-bottom: 20px; }
     .card-heading p { margin-bottom: 0; color: var(--muted); font-size: .94rem; }
 
+    .view-switch {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
     .field { margin-bottom: 16px; }
+
     label {
       display: block;
       margin-bottom: 7px;
@@ -139,7 +140,7 @@
     }
 
     .password-wrap { position: relative; }
-    .password-wrap input { padding-right: 76px; }
+    .password-wrap input { padding-right: 84px; }
 
     .toggle-password {
       position: absolute;
@@ -186,7 +187,25 @@
       font-weight: 700;
     }
 
-    .text-button:hover:not(:disabled) { background: transparent; color: var(--primary-dark); text-decoration: underline; }
+    .text-button:hover:not(:disabled) {
+      background: transparent;
+      color: var(--primary-dark);
+      text-decoration: underline;
+    }
+
+    .view-button {
+      background: #fff;
+      color: var(--primary);
+      border: 1px solid var(--line);
+    }
+
+    .view-button[aria-pressed="true"] {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    .view-button:hover:not(:disabled) { background: var(--primary-dark); color: #fff; }
     .forgot-row { margin: 15px 0 0; }
 
     .notice {
@@ -202,12 +221,14 @@
     .notice[data-kind="success"] { color: var(--success); }
 
     .account-card { margin-top: 24px; }
-    .status-grid {
+    .status-grid, .profile-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
       margin: 20px 0 0;
     }
+
+    .profile-heading { margin: 24px 0 0; }
 
     .status-item {
       padding: 14px;
@@ -229,7 +250,12 @@
 
     .plans-section { margin-top: 28px; }
     .plans-heading { margin-bottom: 15px; }
-    .plans-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .plans-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
     .plan-card { display: flex; flex-direction: column; gap: 15px; }
     .plan-card p { margin: -8px 0 0; color: var(--muted); font-size: .9rem; }
     .plan-card button { width: 100%; margin-top: auto; }
@@ -249,9 +275,9 @@
       nav { gap: 13px; }
       nav a { font-size: .86rem; }
       main { width: min(100% - 28px, 920px); padding-top: 38px; }
-      .auth-grid, .plans-grid { grid-template-columns: 1fr; }
+      .plans-grid { grid-template-columns: 1fr; }
       .card { padding: 21px; }
-      .status-grid { grid-template-columns: 1fr; }
+      .status-grid, .profile-grid { grid-template-columns: 1fr; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -278,40 +304,20 @@
       <p class="muted">Log in of maak een account aan om je abonnement te beheren en Saldo Slim te gebruiken.</p>
     </section>
 
-    <section class="auth-grid" aria-label="Inloggen of registreren">
-      <article class="card">
-        <div class="card-heading">
-          <h2>Account aanmaken</h2>
-          <p>Maak in een paar stappen je Saldo Slim-account aan.</p>
-        </div>
-        <form id="registerForm">
-          <div class="field">
-            <label for="rname">Naam</label>
-            <input id="rname" name="name" type="text" autocomplete="name" placeholder="Je naam" required>
-          </div>
-          <div class="field">
-            <label for="remail">E-mailadres</label>
-            <input id="remail" name="email" type="email" autocomplete="email" placeholder="jij@voorbeeld.nl" required>
-          </div>
-          <div class="field">
-            <label for="rpass">Wachtwoord</label>
-            <div class="password-wrap">
-              <input id="rpass" name="password" type="password" autocomplete="new-password" minlength="10" placeholder="Minimaal 10 tekens" required>
-              <button class="toggle-password" type="button" data-password="rpass" aria-label="Wachtwoord tonen">Tonen</button>
-            </div>
-          </div>
-          <button class="full-width" id="register" type="submit">Account aanmaken</button>
-        </form>
-      </article>
+    <section aria-label="Accounttoegang">
+      <div class="view-switch" aria-label="Kies accountactie">
+        <button id="showLogin" class="view-button" type="button" aria-pressed="true">Inloggen</button>
+        <button id="showRegister" class="view-button" type="button" aria-pressed="false">Account aanmaken</button>
+      </div>
 
-      <article class="card">
+      <article class="card auth-card" id="loginView">
         <div class="card-heading">
           <h2>Inloggen</h2>
           <p>Fijn dat je er weer bent. Log in om verder te gaan.</p>
         </div>
         <form id="loginForm">
           <div class="field">
-            <label for="lemail">E-mailadres</label>
+            <label for="lemail">E-mail</label>
             <input id="lemail" name="email" type="email" autocomplete="email" placeholder="jij@voorbeeld.nl" required>
           </div>
           <div class="field">
@@ -325,6 +331,43 @@
           <p class="forgot-row">
             <button class="text-button" id="passwordHelp" type="button">Wachtwoord vergeten?</button>
           </p>
+        </form>
+      </article>
+
+      <article class="card auth-card" id="registerView" hidden>
+        <div class="card-heading">
+          <h2>Account aanmaken</h2>
+          <p>Vul je gegevens in om je Saldo Slim-account aan te maken.</p>
+        </div>
+        <form id="registerForm">
+          <div class="field">
+            <label for="rfirstName">Voornaam</label>
+            <input id="rfirstName" name="firstName" type="text" autocomplete="given-name" placeholder="Je voornaam" required>
+          </div>
+          <div class="field">
+            <label for="rlastName">Achternaam</label>
+            <input id="rlastName" name="lastName" type="text" autocomplete="family-name" placeholder="Je achternaam" required>
+          </div>
+          <div class="field">
+            <label for="rage">Leeftijd</label>
+            <input id="rage" name="age" type="number" inputmode="numeric" min="16" max="120" step="1" required>
+          </div>
+          <div class="field">
+            <label for="remail">E-mail</label>
+            <input id="remail" name="email" type="email" autocomplete="email" placeholder="jij@voorbeeld.nl" required>
+          </div>
+          <div class="field">
+            <label for="rphone">Telefoonnummer</label>
+            <input id="rphone" name="phone" type="tel" autocomplete="tel" placeholder="Je telefoonnummer" required>
+          </div>
+          <div class="field">
+            <label for="rpass">Wachtwoord</label>
+            <div class="password-wrap">
+              <input id="rpass" name="password" type="password" autocomplete="new-password" minlength="10" placeholder="Minimaal 10 tekens" required>
+              <button class="toggle-password" type="button" data-password="rpass" aria-label="Wachtwoord tonen">Tonen</button>
+            </div>
+          </div>
+          <button class="full-width" id="register" type="submit">Account aanmaken</button>
         </form>
       </article>
     </section>
@@ -350,6 +393,16 @@
           <dd id="accountRole">—</dd>
         </div>
       </dl>
+      <div id="profileSection" hidden>
+        <h3 class="profile-heading">Profiel</h3>
+        <dl class="profile-grid">
+          <div class="status-item" id="profileFirstNameItem" hidden><dt>Voornaam</dt><dd id="profileFirstName"></dd></div>
+          <div class="status-item" id="profileLastNameItem" hidden><dt>Achternaam</dt><dd id="profileLastName"></dd></div>
+          <div class="status-item" id="profileAgeItem" hidden><dt>Leeftijd</dt><dd id="profileAge"></dd></div>
+          <div class="status-item" id="profileEmailItem" hidden><dt>E-mail</dt><dd id="profileEmail"></dd></div>
+          <div class="status-item" id="profilePhoneItem" hidden><dt>Telefoonnummer</dt><dd id="profilePhone"></dd></div>
+        </dl>
+      </div>
       <div class="account-actions">
         <a class="button-link" href="admin.html" id="adminPanelButton" hidden>Open adminpaneel</a>
         <button id="logout" type="button" class="text-button" hidden>Uitloggen</button>
@@ -403,6 +456,14 @@
       const messageElement = el("msg");
       messageElement.textContent = message;
       messageElement.dataset.kind = kind;
+    }
+
+    function showAuthView(view) {
+      const loginVisible = view === "login";
+      el("loginView").hidden = !loginVisible;
+      el("registerView").hidden = loginVisible;
+      el("showLogin").setAttribute("aria-pressed", String(loginVisible));
+      el("showRegister").setAttribute("aria-pressed", String(!loginVisible));
     }
 
     function friendlyError(error, context = "") {
@@ -486,6 +547,31 @@
       return !isBasic && !isInactive;
     }
 
+    function setProfileField(itemId, valueId, value) {
+      const available = value !== undefined && value !== null && String(value).trim() !== "";
+      el(itemId).hidden = !available;
+      el(valueId).textContent = available ? String(value) : "";
+      return available;
+    }
+
+    function renderProfile(user) {
+      const firstName = user.firstName ?? user.first_name;
+      const lastName = user.lastName ?? user.last_name;
+      const age = user.age;
+      const email = user.email;
+      const phone = user.phone ?? user.phoneNumber ?? user.phone_number;
+
+      const hasAnyProfileField = [
+        setProfileField("profileFirstNameItem", "profileFirstName", firstName),
+        setProfileField("profileLastNameItem", "profileLastName", lastName),
+        setProfileField("profileAgeItem", "profileAge", age),
+        setProfileField("profileEmailItem", "profileEmail", email),
+        setProfileField("profilePhoneItem", "profilePhone", phone)
+      ].some(Boolean);
+
+      el("profileSection").hidden = !hasAnyProfileField;
+    }
+
     async function loadPaddleConfig() {
       config = await api("/billing/web/paddle/config");
 
@@ -507,6 +593,7 @@
         config = null;
         el("accountSummary").textContent = "Je bent nog niet ingelogd.";
         el("accountDetails").hidden = true;
+        el("profileSection").hidden = true;
         el("plansSection").hidden = true;
         el("logout").hidden = true;
         setAdminVisibility(false);
@@ -530,6 +617,7 @@
         el("accountStatus").textContent = status;
         el("accountRole").textContent = role;
         el("accountDetails").hidden = false;
+        renderProfile(user);
         el("plansSection").hidden = false;
         el("logout").hidden = false;
         setAdminVisibility(canAccessAdmin);
@@ -559,6 +647,7 @@
           config = null;
           el("accountSummary").textContent = "Je sessie is verlopen. Log opnieuw in.";
           el("accountDetails").hidden = true;
+          el("profileSection").hidden = true;
           el("plansSection").hidden = true;
           el("logout").hidden = true;
           setAdminVisibility(false);
@@ -594,17 +683,33 @@
       }
     }
 
+    el("showLogin").addEventListener("click", () => showAuthView("login"));
+    el("showRegister").addEventListener("click", () => showAuthView("register"));
+
     el("registerForm").addEventListener("submit", event => {
       event.preventDefault();
+
+      const ageValue = el("rage").value;
+      const age = Number(ageValue);
       const password = el("rpass").value;
+
+      if (!Number.isInteger(age) || age < 16 || age > 120) {
+        showMessage("Leeftijd moet een heel getal van 16 tot en met 120 zijn.", "error");
+        el("rage").focus();
+        return;
+      }
       if (password.length < 10) {
         showMessage("Kies een wachtwoord van minimaal 10 tekens.", "error");
         el("rpass").focus();
         return;
       }
+
       authenticate("/auth/register", {
-        name: el("rname").value.trim(),
+        firstName: el("rfirstName").value.trim(),
+        lastName: el("rlastName").value.trim(),
+        age,
         email: el("remail").value.trim(),
+        phone: el("rphone").value.trim(),
         password
       }, "register");
     });
