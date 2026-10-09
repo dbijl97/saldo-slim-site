@@ -300,6 +300,7 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, "http://localhost");
   const key = `${req.method} ${url.pathname}`;
+  const pathnameParts = url.pathname.split("/");
 
   try {
     if (key === "GET /health") {
@@ -739,7 +740,15 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { audit: result.rows });
     }
 
-    const roleMatch = req.method === "POST" && url.pathname.match(/^\/admin\/users\/([^/]+)\/role$/);
+    const roleMatch =
+      req.method === "POST" &&
+      pathnameParts.length === 5 &&
+      pathnameParts[1] === "admin" &&
+      pathnameParts[2] === "users" &&
+      pathnameParts[3] &&
+      pathnameParts[4] === "role"
+        ? pathnameParts[3]
+        : null;
     if (roleMatch) {
       const actor = await requireAdmin(req, res, true);
       if (!actor) return;
@@ -753,7 +762,7 @@ const server = http.createServer(async (req, res) => {
         `update users set role=$1,updated_at=now()
          where id=$2 and role<>'owner' and lower(email)<>$3
          returning id,name,email,plan,status,role,created_at,updated_at,last_login_at`,
-        [role, roleMatch[1], OWNER_EMAIL]
+        [role, roleMatch, OWNER_EMAIL]
       );
       if (!result.rowCount) return send(res, 404, { error: "user_not_found_or_protected" });
 
@@ -762,7 +771,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     const userStatusMatch =
-      req.method === "POST" && url.pathname.match(/^\/admin\/users\/([^/]+)\/status$/);
+      req.method === "POST" &&
+      pathnameParts.length === 5 &&
+      pathnameParts[1] === "admin" &&
+      pathnameParts[2] === "users" &&
+      pathnameParts[3] &&
+      pathnameParts[4] === "status"
+        ? pathnameParts[3]
+        : null;
     if (userStatusMatch) {
       const actor = await requireAdmin(req, res, true);
       if (!actor) return;
@@ -776,7 +792,7 @@ const server = http.createServer(async (req, res) => {
         `update users set status=$1,updated_at=now()
          where id=$2 and role<>'owner' and lower(email)<>$3
          returning id,name,email,plan,status,role,created_at,updated_at,last_login_at`,
-        [status, userStatusMatch[1], OWNER_EMAIL]
+        [status, userStatusMatch, OWNER_EMAIL]
       );
       if (!result.rowCount) return send(res, 404, { error: "user_not_found_or_protected" });
 
@@ -785,7 +801,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     const ticketStatusMatch =
-      req.method === "POST" && url.pathname.match(/^\/admin\/support\/([^/]+)\/status$/);
+      req.method === "POST" &&
+      pathnameParts.length === 5 &&
+      pathnameParts[1] === "admin" &&
+      pathnameParts[2] === "support" &&
+      pathnameParts[3] &&
+      pathnameParts[4] === "status"
+        ? pathnameParts[3]
+        : null;
     if (ticketStatusMatch) {
       const actor = await requireAdmin(req, res, true);
       if (!actor) return;
@@ -799,8 +822,52 @@ const server = http.createServer(async (req, res) => {
         `update support_tickets set status=$1,updated_at=now()
          where id=$2
          returning id,user_id,subject,message,status,priority,created_at,updated_at`,
-        [status, ticketStatusMatch[1]]
+        [status, ticketStatusMatch]
       );
       if (!result.rowCount) return send(res, 404, { error: "ticket_not_found" });
 
-      await audit(actor,
+      await audit(actor, "support.status.updated", "support_ticket", result.rows[0].id, { status });
+      return send(res, 200, { ticket: result.rows[0] });
+    }
+
+    const subscriptionCancelMatch =
+      req.method === "POST" &&
+      pathnameParts.length === 5 &&
+      pathnameParts[1] === "admin" &&
+      pathnameParts[2] === "subscriptions" &&
+      pathnameParts[3] &&
+      pathnameParts[4] === "cancel"
+        ? pathnameParts[3]
+        : null;
+    if (subscriptionCancelMatch) {
+      const actor = await requireAdmin(req, res, true);
+      if (!actor) return;
+
+      const result = await pool.query(
+        `update subscriptions set status='cancelled',updated_at=now()
+         where id=$1
+         returning id,user_id,provider,external_subscription_id,plan,status,updated_at`,
+        [subscriptionCancelMatch]
+      );
+      if (!result.rowCount) return send(res, 404, { error: "subscription_not_found" });
+
+      await pool.query("update users set plan='Basis',updated_at=now() where id=$1", [
+        result.rows[0].user_id
+      ]);
+      await audit(actor, "subscription.cancelled", "subscription", result.rows[0].id);
+      return send(res, 200, { subscription: result.rows[0] });
+    }
+
+    return send(res, 404, { error: "not_found" });
+  } catch (error) {
+    console.error(error);
+    return send(res, error.statusCode || 500, {
+      error: error.message || "internal_error"
+    });
+  }
+});
+
+await schema();
+server.listen(PORT, () => {
+  console.log(`Server listening on ${PORT}`);
+});
