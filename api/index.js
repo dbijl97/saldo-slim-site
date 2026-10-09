@@ -8,6 +8,14 @@ const DBURL = String(process.env.DATABASE_URL || "").trim();
 const OWNER_EMAIL = String(process.env.OWNER_EMAIL || "dbijl97@outlook.com").trim().toLowerCase();
 const SUPPORT_EMAIL = String(process.env.SUPPORT_EMAIL || "info@partydj-dylan.nl").trim();
 const PADDLE_API_KEY = String(process.env.PADDLE_API_KEY || "").trim();
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
+const PASSWORD_RESET_FROM = String(
+  process.env.PASSWORD_RESET_FROM || "Saldo Slim <info@partydj-dylan.nl>"
+).trim();
+const PUBLIC_APP_URL = String(
+  process.env.PUBLIC_APP_URL || "https://saldo.partydj-dylan.nl"
+).trim().replace(/\/+$/, "");
+
 const pool = DBURL
   ? new Pool({
       connectionString: DBURL,
@@ -27,19 +35,19 @@ const ALLOWED_ORIGINS = new Set([
   "https://saldo-slim.onrender.com",
   "https://partydj-dylan.nl",
   "https://www.partydj-dylan.nl",
+  "https://saldo.partydj-dylan.nl",
   "https://saldoslim.partydj-dylan.nl"
 ]);
 
 function send(res, status, data) {
   const origin = String(res.req?.headers?.origin || "");
-  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://saldo-slim.onrender.com";
   const headers = {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": allowOrigin,
     "access-control-allow-headers": "content-type,authorization,paddle-signature",
     "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
     vary: "Origin"
   };
+  if (ALLOWED_ORIGINS.has(origin)) headers["access-control-allow-origin"] = origin;
   res.writeHead(status, headers);
   res.end(status === 204 ? "" : JSON.stringify(data));
 }
@@ -128,6 +136,10 @@ function paddleApiConfigured() {
   return Boolean(PADDLE_API_KEY);
 }
 
+function passwordEmailConfigured() {
+  return Boolean(RESEND_API_KEY);
+}
+
 async function schema() {
   if (!pool) return;
 
@@ -195,6 +207,27 @@ async function schema() {
       updated_at timestamptz not null default now()
     );
 
+    create table if not exists budget_profiles(
+      user_id uuid primary key references users(id) on delete cascade,
+      income numeric not null default 0,
+      fixed_expenses numeric not null default 0,
+      reservations numeric not null default 0,
+      days_remaining int not null default 30,
+      updated_at timestamptz not null default now()
+    );
+
+    create table if not exists password_reset_tokens(
+      id uuid primary key,
+      user_id uuid not null references users(id) on delete cascade,
+      token_hash text unique not null,
+      expires_at timestamptz not null,
+      used_at timestamptz,
+      created_at timestamptz not null default now()
+    );
+
+    create index if not exists password_reset_tokens_user_idx
+      on password_reset_tokens(user_id);
+
     create table if not exists support_tickets(
       id uuid primary key,
       user_id uuid not null references users(id) on delete cascade,
@@ -238,7 +271,7 @@ async function schema() {
 }
 
 function bearer(req) {
-  return String(req.headers.authorization || "").replace(/^Bearer\\s+/i, "");
+  return String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
 }
 
 function publicUser(row) {
@@ -302,6 +335,69 @@ async function audit(actor, action, targetType, targetId, details = {}) {
   );
 }
 
+async function createPasswordReset(userId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  await pool.query("begin");
+  try {
+    await pool.query(
+      `update password_reset_tokens
+       set used_at=now()
+       where user_id=$1 and used_at is null`,
+      [userId]
+    );
+    await pool.query(
+      `insert into password_reset_tokens(id,user_id,token_hash,expires_at)
+       values($1,$2,$3,now()+interval '30 minutes')`,
+      [crypto.randomUUID(), userId, th(token)]
+    );
+    await pool.query("commit");
+    return token;
+  } catch (error) {
+    await pool.query("rollback");
+    throw error;
+  }
+}
+
+async function sendPasswordResetEmail(email, token) {
+  if (!RESEND_API_KEY) return false;
+
+  const resetUrl = `${PUBLIC_APP_URL}/reset-password.html?token=${encodeURIComponent(token)}`;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${RESEND_API_KEY}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      from: PASSWORD_RESET_FROM,
+      to: [email],
+      subject: "Wachtwoord opnieuw instellen - Saldo Slim",
+      text: `Gebruik de volgende link om je wachtwoord opnieuw in te stellen:\n\n${resetUrl}\n\nDeze link verloopt over 30 minuten.`,
+      html: `<p>Gebruik de volgende link om je wachtwoord opnieuw in te stellen:</p><p><a href="${resetUrl}">Wachtwoord opnieuw instellen</a></p><p>Deze link verloopt over 30 minuten.</p>`
+    })
+  });
+  return response.ok;
+}
+
+function budgetProfile(row) {
+  if (!row) return null;
+  const income = Number(row.income);
+  const fixedExpenses = Number(row.fixed_expenses);
+  const reservations = Number(row.reservations);
+  const daysRemaining = Number(row.days_remaining);
+  const room = income - fixedExpenses - reservations;
+  return {
+    income,
+    fixed_expenses: fixedExpenses,
+    reservations,
+    days_remaining: daysRemaining,
+    updated_at: row.updated_at ?? null,
+    room,
+    safeDaily: Math.max(0, room / daysRemaining),
+    warning: room < 0
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   res.req = req;
   if (req.method === "OPTIONS") return send(res, 204, {});
@@ -326,6 +422,7 @@ const server = http.createServer(async (req, res) => {
         webhookConfigured: Boolean(process.env.PADDLE_WEBHOOK_SECRET),
         paddlePricesConfigured: priceMap.size === 3,
         paddleApiConfigured: paddleApiConfigured(),
+        passwordEmailConfigured: passwordEmailConfigured(),
         googlePaymentsEnabled: false,
         playStoreDeploymentEnabled: false
       });
@@ -398,19 +495,139 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (key === "POST /auth/password-help") {
+    if (
+      key === "POST /auth/password-reset/request" ||
+      key === "POST /auth/password-help"
+    ) {
+      const body = await jsonBody(req);
+      const email = String(body.email || "").trim().toLowerCase();
+      if (pool && email) {
+        const result = await pool.query(
+          "select id,email from users where email=$1",
+          [email]
+        );
+        if (result.rows[0]) {
+          const token = await createPasswordReset(result.rows[0].id);
+          if (RESEND_API_KEY) {
+            try {
+              await sendPasswordResetEmail(result.rows[0].email, token);
+            } catch {
+              // Never expose or log reset tokens or email-provider details here.
+            }
+          }
+        }
+      }
       return send(res, 200, {
         ok: true,
-        message: "For password assistance, contact support.",
-        supportEmail: SUPPORT_EMAIL
+        message: "Als er een account met dit e-mailadres bestaat, ontvang je instructies."
       });
+    }
+
+    if (key === "POST /auth/password-reset/confirm") {
+      if (!pool) return send(res, 503, { error: "database_not_configured" });
+      const body = await jsonBody(req);
+      const token = String(body.token || "");
+      const password = String(body.password || "");
+      if (password.length < 10) return send(res, 400, { error: "invalid_password" });
+      if (!token) return send(res, 400, { error: "invalid_or_expired_token" });
+
+      const passwordData = hp(password);
+      const connection = await pool.connect();
+      let changed = false;
+      try {
+        await connection.query("begin");
+        const tokenResult = await connection.query(
+          `select id,user_id
+           from password_reset_tokens
+           where token_hash=$1 and used_at is null and expires_at>now()
+           for update`,
+          [th(token)]
+        );
+
+        if (tokenResult.rowCount) {
+          const resetToken = tokenResult.rows[0];
+          await connection.query("select id from users where id=$1 for update", [resetToken.user_id]);
+          const stillValid = await connection.query(
+            `select id from password_reset_tokens
+             where id=$1 and used_at is null and expires_at>now()`,
+            [resetToken.id]
+          );
+
+          if (stillValid.rowCount) {
+            await connection.query(
+              `update users
+               set password_hash=$1,password_salt=$2,updated_at=now()
+               where id=$3`,
+              [passwordData.h, passwordData.s, resetToken.user_id]
+            );
+            await connection.query(
+              "update password_reset_tokens set used_at=now() where id=$1",
+              [resetToken.id]
+            );
+            await connection.query("delete from sessions where user_id=$1", [resetToken.user_id]);
+            await connection.query(
+              `update password_reset_tokens
+               set used_at=now()
+               where user_id=$1 and used_at is null`,
+              [resetToken.user_id]
+            );
+            changed = true;
+          }
+        }
+        await connection.query("commit");
+      } catch (error) {
+        await connection.query("rollback");
+        throw error;
+      } finally {
+        connection.release();
+      }
+
+      if (!changed) return send(res, 400, { error: "invalid_or_expired_token" });
+      return send(res, 200, { ok: true });
+    }
+
+    if (key === "POST /admin/password-reset") {
+      const actor = await requireAdmin(req, res, true);
+      if (!actor) return;
+      if (!pool) return send(res, 503, { error: "database_not_configured" });
+      if (!RESEND_API_KEY) {
+        return send(res, 503, {
+          error: "email_provider_not_configured",
+          configurationPage: "/installeren.html"
+        });
+      }
+
+      const body = await jsonBody(req);
+      const email = String(body.email || "").trim().toLowerCase();
+      if (!email) return send(res, 400, { error: "invalid_email" });
+
+      const result = await pool.query(
+        "select id,email,role from users where email=$1",
+        [email]
+      );
+      const target = result.rows[0];
+      if (!target || (email !== OWNER_EMAIL && target.role === "owner")) {
+        return send(res, 404, { error: "user_not_found_or_protected" });
+      }
+
+      const token = await createPasswordReset(target.id);
+      let sent;
+      try {
+        sent = await sendPasswordResetEmail(target.email, token);
+      } catch {
+        sent = false;
+      }
+      if (!sent) return send(res, 502, { error: "email_send_failed" });
+
+      await audit(actor, "password_reset.requested", "user", target.id);
+      return send(res, 200, { ok: true });
     }
 
     if (key === "GET /me") {
       const current = await user(req);
       if (!current) return send(res, 401, { error: "not_logged_in" });
 
-      const [subscriptionResult, profileResult] = await Promise.all([
+      const [subscriptionResult, profileResult, budgetResult] = await Promise.all([
         pool.query(
           `select provider,external_subscription_id,plan,status,updated_at
            from subscriptions where user_id=$1 order by updated_at desc limit 1`,
@@ -421,14 +638,105 @@ const server = http.createServer(async (req, res) => {
                   tax_id,vat_number,bank_account_holder,iban,bic,payout_email,updated_at
            from financial_profiles where user_id=$1`,
           [current.id]
+        ),
+        pool.query(
+          `select income,fixed_expenses,reservations,days_remaining,updated_at
+           from budget_profiles where user_id=$1`,
+          [current.id]
         )
       ]);
 
       return send(res, 200, {
         user: publicUser(current),
         subscription: subscriptionResult.rows[0] || null,
-        financialProfile: profileResult.rows[0] || null
+        financialProfile: profileResult.rows[0] || null,
+        budgetProfile: budgetProfile(
+          budgetResult.rows[0] || {
+            income: 0,
+            fixed_expenses: 0,
+            reservations: 0,
+            days_remaining: 30,
+            updated_at: null
+          }
+        )
       });
+    }
+
+    if (key === "GET /budget-profile") {
+      const current = await user(req);
+      if (!current) return send(res, 401, { error: "not_logged_in" });
+      const result = await pool.query(
+        `select income,fixed_expenses,reservations,days_remaining,updated_at
+         from budget_profiles where user_id=$1`,
+        [current.id]
+      );
+      return send(
+        res,
+        200,
+        {
+          budgetProfile: budgetProfile(
+            result.rows[0] || {
+              income: 0,
+              fixed_expenses: 0,
+              reservations: 0,
+              days_remaining: 30,
+              updated_at: null
+            }
+          )
+        }
+      );
+    }
+
+    if (key === "PUT /budget-profile") {
+      const current = await user(req);
+      if (!current) return send(res, 401, { error: "not_logged_in" });
+      const body = await jsonBody(req);
+
+      const existingResult = await pool.query(
+        `select income,fixed_expenses,reservations,days_remaining
+         from budget_profiles where user_id=$1`,
+        [current.id]
+      );
+      const existing = existingResult.rows[0] || {
+        income: 0,
+        fixed_expenses: 0,
+        reservations: 0,
+        days_remaining: 30
+      };
+
+      const rawIncome = body.income ?? existing.income;
+      const rawFixedExpenses = body.fixed_expenses ?? existing.fixed_expenses;
+      const rawReservations = body.reservations ?? existing.reservations;
+      const rawDays = body.days_remaining ?? existing.days_remaining;
+      const income = Number(rawIncome);
+      const fixedExpenses = Number(rawFixedExpenses);
+      const reservations = Number(rawReservations);
+      const daysRemaining = Number(rawDays);
+
+      if (
+        ![income, fixedExpenses, reservations].every(
+          (value) => Number.isFinite(value) && value >= 0
+        ) ||
+        !Number.isInteger(daysRemaining) ||
+        daysRemaining < 1 ||
+        daysRemaining > 366
+      ) {
+        return send(res, 400, { error: "invalid_budget_profile" });
+      }
+
+      const result = await pool.query(
+        `insert into budget_profiles(user_id,income,fixed_expenses,reservations,days_remaining)
+         values($1,$2,$3,$4,$5)
+         on conflict(user_id) do update set
+           income=excluded.income,
+           fixed_expenses=excluded.fixed_expenses,
+           reservations=excluded.reservations,
+           days_remaining=excluded.days_remaining,
+           updated_at=now()
+         returning income,fixed_expenses,reservations,days_remaining,updated_at`,
+        [current.id, income, fixedExpenses, reservations, daysRemaining]
+      );
+      return send(res, 200, { budgetProfile: budgetProfile(result.rows[0]) });
     }
 
     if (key === "PUT /financial-profile") {
@@ -521,361 +829,4 @@ const server = http.createServer(async (req, res) => {
         data?.subscription_id || (eventType.startsWith("subscription.") ? data.id : "") || ""
       ).trim() || null;
       const transactionId = String(
-        eventType.startsWith("transaction.") ? data.id : data.transaction_id || ""
-      ).trim() || null;
-      const status = String(data.status || "").toLowerCase();
-
-      console.log(
-        JSON.stringify({
-          eid: eventId,
-          et: eventType,
-          uid: userId,
-          pid: paddlePriceId,
-          plan,
-          sid: subscriptionId,
-          tid: transactionId,
-          status
-        })
-      );
-
-      if (!pool) return send(res, 200, { ok: true, persisted: false });
-
-      const connection = await pool.connect();
-      try {
-        await connection.query("begin");
-
-        if (
-          eventId &&
-          (await connection.query("select 1 from payment_events where event_id=$1", [eventId]))
-            .rowCount
-        ) {
-          await connection.query("rollback");
-          return send(res, 200, { ok: true, duplicate: true });
-        }
-
-        if (eventType === "payout.created" || eventType === "payout.paid") {
-          const payoutId = String(data.id || data.payout_id || "").trim();
-          if (payoutId) {
-            const payoutStatus = String(data.status || eventType.slice("payout.".length));
-            const amount = data.amount == null ? null : String(data.amount);
-            const currency = data.currency == null ? null : String(data.currency);
-            const remittanceReference =
-              data.remittance_reference == null
-                ? data.reference == null
-                  ? null
-                  : String(data.reference)
-                : String(data.remittance_reference);
-
-            await connection.query(
-              `insert into payouts(
-                 id,external_payout_id,status,amount,currency,remittance_reference
-               ) values($1,$2,$3,$4,$5,$6)
-               on conflict(external_payout_id) do update set
-                 status=excluded.status,
-                 amount=excluded.amount,
-                 currency=excluded.currency,
-                 remittance_reference=excluded.remittance_reference,
-                 updated_at=now()`,
-              [
-                crypto.randomUUID(),
-                payoutId,
-                payoutStatus,
-                amount,
-                currency,
-                remittanceReference
-              ]
-            );
-          }
-        }
-
-        if (
-          userId &&
-          (await connection.query("select 1 from users where id=$1", [userId])).rowCount
-        ) {
-          let nextPlan = null;
-          let subscriptionStatus = null;
-
-          if (
-            (eventType === "transaction.completed" || eventType === "transaction.paid") &&
-            plan
-          ) {
-            nextPlan = plan;
-            subscriptionStatus = "active";
-          }
-
-          if (eventType.startsWith("subscription.")) {
-            if (status === "active" && plan) {
-              nextPlan = plan;
-              subscriptionStatus = "active";
-            }
-            if (status === "past_due") subscriptionStatus = "grace_period";
-            if (status === "canceled" || status === "paused") {
-              nextPlan = "Basis";
-              subscriptionStatus = "cancelled";
-            }
-          }
-
-          if (nextPlan) {
-            await connection.query("update users set plan=$1,updated_at=now() where id=$2", [
-              nextPlan,
-              userId
-            ]);
-          }
-
-          if (subscriptionId && (plan || nextPlan)) {
-            await connection.query(
-              `insert into subscriptions(
-                 id,user_id,provider,external_subscription_id,external_transaction_id,
-                 plan,status,price_id
-               ) values($1,$2,'paddle',$3,$4,$5,$6,$7)
-               on conflict(provider,external_subscription_id)
-                 where external_subscription_id is not null
-               do update set
-                 external_transaction_id=excluded.external_transaction_id,
-                 plan=excluded.plan,
-                 status=excluded.status,
-                 price_id=excluded.price_id,
-                 updated_at=now()`,
-              [
-                crypto.randomUUID(),
-                userId,
-                subscriptionId,
-                transactionId,
-                plan || nextPlan || "Basis",
-                subscriptionStatus || status || "active",
-                paddlePriceId
-              ]
-            );
-          }
-        }
-
-        if (eventId) {
-          await connection.query(
-            "insert into payment_events(event_id,event_type) values($1,$2)",
-            [eventId, eventType]
-          );
-        }
-
-        await connection.query("commit");
-        return send(res, 200, {
-          ok: true,
-          persisted: true,
-          linkedUser: Boolean(userId),
-          plan
-        });
-      } catch (error) {
-        await connection.query("rollback");
-        throw error;
-      } finally {
-        connection.release();
-      }
-    }
-
-    if (key === "GET /admin/overview") {
-      if (!(await requireAdmin(req, res))) return;
-      const [usersResult, subscriptionsResult, ticketsResult, payoutsResult, plansResult] =
-        await Promise.all([
-          pool.query("select count(*)::int as count from users"),
-          pool.query("select count(*)::int as count from subscriptions where status='active'"),
-          pool.query(
-            "select count(*)::int as count from support_tickets where status in ('Open','Pending')"
-          ),
-          pool.query("select count(*)::int as count from payouts"),
-          pool.query("select plan,count(*)::int as count from users group by plan order by plan")
-        ]);
-
-      return send(res, 200, {
-        userCount: usersResult.rows[0].count,
-        activeSubscriptions: subscriptionsResult.rows[0].count,
-        openTickets: ticketsResult.rows[0].count,
-        payoutCount: payoutsResult.rows[0].count,
-        planCounts: Object.fromEntries(plansResult.rows.map((row) => [row.plan, row.count])),
-        paddleApiConfigured: paddleApiConfigured(),
-        ownerEmail: OWNER_EMAIL,
-        supportEmail: SUPPORT_EMAIL
-      });
-    }
-
-    if (key === "GET /admin/users") {
-      if (!(await requireAdmin(req, res))) return;
-      const result = await pool.query(
-        `select id,name,email,plan,status,role,created_at,updated_at,last_login_at
-         from users order by created_at desc`
-      );
-      return send(res, 200, { users: result.rows });
-    }
-
-    if (key === "GET /admin/subscriptions") {
-      if (!(await requireAdmin(req, res))) return;
-      const result = await pool.query(
-        `select s.id,s.user_id,u.email,s.provider,s.external_subscription_id,
-                s.external_transaction_id,s.plan,s.status,s.price_id,s.created_at,s.updated_at
-         from subscriptions s join users u on u.id=s.user_id
-         order by s.updated_at desc`
-      );
-      return send(res, 200, { subscriptions: result.rows });
-    }
-
-    if (key === "GET /admin/payouts") {
-      if (!(await requireAdmin(req, res))) return;
-      const result = await pool.query(
-        `select id,external_payout_id,status,amount,currency,remittance_reference,
-                created_at,updated_at
-         from payouts order by updated_at desc`
-      );
-      return send(res, 200, { payouts: result.rows });
-    }
-
-    if (key === "GET /admin/support") {
-      if (!(await requireAdmin(req, res))) return;
-      const result = await pool.query(
-        `select t.id,t.user_id,u.name as user_name,u.email,t.subject,t.message,
-                t.status,t.priority,t.created_at,t.updated_at
-         from support_tickets t join users u on u.id=t.user_id
-         order by t.created_at desc`
-      );
-      return send(res, 200, { tickets: result.rows });
-    }
-
-    if (key === "GET /admin/audit") {
-      if (!(await requireAdmin(req, res, true))) return;
-      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 100, 500));
-      const result = await pool.query(
-        `select id,actor_user_id,action,target_type,target_id,details,created_at
-         from audit_log order by created_at desc limit $1`,
-        [limit]
-      );
-      return send(res, 200, { audit: result.rows });
-    }
-
-    const roleMatch =
-      req.method === "POST" &&
-      pathnameParts.length === 5 &&
-      pathnameParts[1] === "admin" &&
-      pathnameParts[2] === "users" &&
-      pathnameParts[3] &&
-      pathnameParts[4] === "role"
-        ? pathnameParts[3]
-        : null;
-    if (roleMatch) {
-      const actor = await requireAdmin(req, res, true);
-      if (!actor) return;
-      const body = await jsonBody(req);
-      const role = String(body.role || "");
-      if (!["user", "moderator"].includes(role)) {
-        return send(res, 400, { error: "invalid_role" });
-      }
-
-      const result = await pool.query(
-        `update users set role=$1,updated_at=now()
-         where id=$2 and role<>'owner' and lower(email)<>$3
-         returning id,name,email,plan,status,role,created_at,updated_at,last_login_at`,
-        [role, roleMatch, OWNER_EMAIL]
-      );
-      if (!result.rowCount) return send(res, 404, { error: "user_not_found_or_protected" });
-
-      await audit(actor, "user.role.updated", "user", result.rows[0].id, { role });
-      return send(res, 200, { user: result.rows[0] });
-    }
-
-    const userStatusMatch =
-      req.method === "POST" &&
-      pathnameParts.length === 5 &&
-      pathnameParts[1] === "admin" &&
-      pathnameParts[2] === "users" &&
-      pathnameParts[3] &&
-      pathnameParts[4] === "status"
-        ? pathnameParts[3]
-        : null;
-    if (userStatusMatch) {
-      const actor = await requireAdmin(req, res, true);
-      if (!actor) return;
-      const body = await jsonBody(req);
-      const status = String(body.status || "");
-      if (!["active", "disabled"].includes(status)) {
-        return send(res, 400, { error: "invalid_status" });
-      }
-
-      const result = await pool.query(
-        `update users set status=$1,updated_at=now()
-         where id=$2 and role<>'owner' and lower(email)<>$3
-         returning id,name,email,plan,status,role,created_at,updated_at,last_login_at`,
-        [status, userStatusMatch, OWNER_EMAIL]
-      );
-      if (!result.rowCount) return send(res, 404, { error: "user_not_found_or_protected" });
-
-      await audit(actor, "user.status.updated", "user", result.rows[0].id, { status });
-      return send(res, 200, { user: result.rows[0] });
-    }
-
-    const ticketStatusMatch =
-      req.method === "POST" &&
-      pathnameParts.length === 5 &&
-      pathnameParts[1] === "admin" &&
-      pathnameParts[2] === "support" &&
-      pathnameParts[3] &&
-      pathnameParts[4] === "status"
-        ? pathnameParts[3]
-        : null;
-    if (ticketStatusMatch) {
-      const actor = await requireAdmin(req, res, true);
-      if (!actor) return;
-      const body = await jsonBody(req);
-      const status = String(body.status || "");
-      if (!["Open", "Pending", "Closed"].includes(status)) {
-        return send(res, 400, { error: "invalid_status" });
-      }
-
-      const result = await pool.query(
-        `update support_tickets set status=$1,updated_at=now()
-         where id=$2
-         returning id,user_id,subject,message,status,priority,created_at,updated_at`,
-        [status, ticketStatusMatch]
-      );
-      if (!result.rowCount) return send(res, 404, { error: "ticket_not_found" });
-
-      await audit(actor, "support.status.updated", "support_ticket", result.rows[0].id, { status });
-      return send(res, 200, { ticket: result.rows[0] });
-    }
-
-    const subscriptionCancelMatch =
-      req.method === "POST" &&
-      pathnameParts.length === 5 &&
-      pathnameParts[1] === "admin" &&
-      pathnameParts[2] === "subscriptions" &&
-      pathnameParts[3] &&
-      pathnameParts[4] === "cancel"
-        ? pathnameParts[3]
-        : null;
-    if (subscriptionCancelMatch) {
-      const actor = await requireAdmin(req, res, true);
-      if (!actor) return;
-
-      const result = await pool.query(
-        `update subscriptions set status='cancelled',updated_at=now()
-         where id=$1
-         returning id,user_id,provider,external_subscription_id,plan,status,updated_at`,
-        [subscriptionCancelMatch]
-      );
-      if (!result.rowCount) return send(res, 404, { error: "subscription_not_found" });
-
-      await pool.query("update users set plan='Basis',updated_at=now() where id=$1", [
-        result.rows[0].user_id
-      ]);
-      await audit(actor, "subscription.cancelled", "subscription", result.rows[0].id);
-      return send(res, 200, { subscription: result.rows[0] });
-    }
-
-    return send(res, 404, { error: "not_found" });
-  } catch (error) {
-    console.error(error);
-    return send(res, error.statusCode || 500, {
-      error: error.message || "internal_error"
-    });
-  }
-});
-
-await schema();
-server.listen(PORT, () => {
-  console.log(`Server listening on ${PORT}`);
-});
+        eventType.startsWith("transaction.") ? data.id :
