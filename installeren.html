@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Saldo Slim installeren: download de Android-app en bekijk de installatie- en beheerinstructies.">
+  <title>Saldo Slim installeren</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="index.html" aria-label="Saldo Slim home">Saldo Slim</a>
+      <nav aria-label="Hoofdnavigatie">
+        <a href="index.html">Home</a>
+        <a href="account.html">Account</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero" aria-labelledby="page-title">
+      <p class="eyebrow">Android-installatie</p>
+      <h1 id="page-title">Saldo Slim installeren</h1>
+      <p>Installeer de Android-app rechtstreeks met het APK-bestand. Volg de stappen hieronder en zet de installatietoestemming na afloop weer uit.</p>
+      <a class="button button-primary" href="https://github.com/dbijl97/saldo-slim-site/releases/download/v1.2.0/saldo-slim-v1.2.apk" download>
+        Download Android APK v1.2
+      </a>
+    </section>
+
+    <section class="card" aria-labelledby="install-title">
+      <h2 id="install-title">APK rechtstreeks installeren</h2>
+      <ol>
+        <li>Download de APK via de HTTPS-downloadknop hierboven.</li>
+        <li>
+          Controleer desgewenst de SHA-256-controlesom met een checksumprogramma:
+          <a href="https://github.com/dbijl97/saldo-slim-site/releases/download/v1.2.0/saldo-slim-v1.2.sha256">Download het SHA-256-bestand</a>.
+          Vergelijk de berekende waarde met de waarde in dat bestand.
+        </li>
+        <li>
+          Open op je Android-apparaat <strong>Instellingen → Apps → Speciale app-toegang → Onbekende apps installeren</strong>.
+          De precieze benaming kan per Android-versie verschillen. Sta installeren alleen tijdelijk toe voor de browser of bestandsapp waarmee je de APK opent.
+        </li>
+        <li>Open het gedownloade APK-bestand en volg de aanwijzingen om Saldo Slim te installeren.</li>
+        <li>Ga daarna terug naar dezelfde instelling en schakel <strong>Toestaan vanuit deze bron</strong> weer uit.</li>
+      </ol>
+    </section>
+
+    <aside class="notice notice-warning" aria-labelledby="protect-title">
+      <h2 id="protect-title">Melding van Play Protect of antivirus</h2>
+      <p>Apps die rechtstreeks als APK worden geïnstalleerd, kunnen waarschuwingen tonen omdat ze buiten Google Play zijn gedownload. Geen enkele ontwikkelaar kan garanderen dat er nooit een waarschuwing verschijnt.</p>
+      <p><strong>Schakel Google Play Protect niet volledig uit.</strong> Controleer dat je de APK van de officiële downloadlink haalt. Een stabiele release-ondertekening en een gepubliceerde SHA-256-controlesom helpen de herkomst en integriteit van het bestand te controleren.</p>
+    </aside>
+
+    <section class="card" aria-labelledby="email-title">
+      <h2 id="email-title">Wachtwoordherstel instellen</h2>
+      <p>Beheerder: voeg op de Render API-service de volgende environment variables toe om e-mails voor wachtwoordherstel in te stellen:</p>
+      <ul>
+        <li><code>RESEND_API_KEY</code> — je geheime API-sleutel van Resend.</li>
+        <li><code>PASSWORD_RESET_FROM</code> — <code>Saldo Slim &lt;info@partydj-dylan.nl&gt;</code></li>
+        <li><code>PUBLIC_APP_URL</code> — <code>https://saldo.partydj-dylan.nl</code></li>
+      </ul>
+      <p class="notice notice-warning"><strong>Houd RESEND_API_KEY geheim.</strong> Bewaar deze alleen als geheime serverconfiguratie op Render. Zet de sleutel nooit in browsercode, een openbare repository of GitHub.</p>
+    </section>
+
+    <section class="card" aria-labelledby="domain-title">
+      <h2 id="domain-title">Domein en Paddle</h2>
+      <p>Configureer <code>saldo.partydj-dylan.nl</code> bij je DNS-provider en voeg het domein toe als custom domain in Render. Rond ook de websitegoedkeuring bij Paddle af. Houd de Render-URL beschikbaar als fallback wanneer het eigen domein tijdelijk niet bereikbaar is.</p>
+    </section>
+
+    <aside class="notice notice-info" aria-labelledby="payments-title">
+      <h2 id="payments-title">Google Play en betalingen</h2>
+      <p>Google Play-betalingen en publicatie in de Play Store zijn uitgeschakeld. Deze installatie verloopt rechtstreeks via een APK.</p>
+    </aside>
+
+    <section class="card" aria-labelledby="support-title">
+      <h2 id="support-title">Hulp nodig?</h2>
+      <p>Neem contact op via <a href="mailto:info@partydj-dylan.nl">info@partydj-dylan.nl</a>.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <nav aria-label="Footer">
+        <a href="index.html">Home</a>
+        <a href="account.html">Account</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Voorwaarden</a>
+      </nav>
+      <p>&copy; Saldo Slim</p>
+    </div>
+  </footer>
+</body>
+</html>
