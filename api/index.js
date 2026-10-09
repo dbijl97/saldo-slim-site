@@ -44,7 +44,7 @@ function send(res, status, data) {
   const headers = {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-headers": "content-type,authorization,paddle-signature",
-    "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     vary: "Origin"
   };
   if (ALLOWED_ORIGINS.has(origin)) headers["access-control-allow-origin"] = origin;
@@ -158,6 +158,10 @@ async function schema() {
 
     alter table users add column if not exists role text not null default 'user';
     alter table users add column if not exists last_login_at timestamptz;
+    alter table users add column if not exists first_name text;
+    alter table users add column if not exists last_name text;
+    alter table users add column if not exists age int;
+    alter table users add column if not exists phone text;
 
     create table if not exists sessions(
       token_hash text primary key,
@@ -274,11 +278,24 @@ function bearer(req) {
   return String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
 }
 
+function naturalNames(row) {
+  const fallback = String(row.name || "").trim().split(/\s+/);
+  return {
+    firstName: row.first_name ?? fallback[0] ?? "",
+    lastName: row.last_name ?? fallback.slice(1).join(" ")
+  };
+}
+
 function publicUser(row) {
   if (!row) return null;
+  const names = naturalNames(row);
   return {
     id: row.id,
     name: row.name,
+    firstName: names.firstName,
+    lastName: names.lastName,
+    age: row.age ?? null,
+    phone: row.phone ?? null,
     email: row.email,
     plan: row.plan,
     status: row.status,
@@ -296,7 +313,7 @@ async function user(req) {
   );
 
   const result = await pool.query(
-    `select u.id,u.name,u.email,u.plan,u.status,u.role,u.last_login_at
+    `select u.id,u.name,u.first_name,u.last_name,u.age,u.phone,u.email,u.plan,u.status,u.role,u.last_login_at
      from sessions s
      join users u on u.id=s.user_id
      where s.token_hash=$1 and s.expires_at>now() and u.status='active'`,
@@ -398,13 +415,48 @@ function budgetProfile(row) {
   };
 }
 
+function entitlementData(current) {
+  const privileged = ["owner", "moderator"].includes(current.role);
+  const rankByPlan = { Basis: 0, Basic: 0, Plus: 1, Pro: 2, Max: 3 };
+  const effectivePlan = privileged ? "Max" : (current.plan || "Basis");
+  const rank = privileged ? 3 : (rankByPlan[effectivePlan] ?? 0);
+  const features = {
+    safeDaily: rank >= 0,
+    planning: rank >= 1,
+    fixedExpenseEditing: rank >= 1,
+    smartWarnings: rank >= 1,
+    scenarios3: rank >= 1,
+    unlimitedCalculations: rank >= 2,
+    smartNotifications25: rank >= 2,
+    savingsGoals: rank >= 2,
+    analyses: rank >= 2,
+    forecasts: rank >= 2,
+    export: rank >= 2,
+    unlimitedSmartNotifications: rank >= 3,
+    advancedScenarios: rank >= 3,
+    longerOutlook: rank >= 3,
+    protectionWarnings: rank >= 3,
+    prioritySupport: rank >= 3,
+    adminFullAccess: privileged
+  };
+  return { effectivePlan, features };
+}
+
+async function updateSubscriptionUserPlan(connection, userId, plan, status) {
+  if (!userId) return;
+  const active = ["active", "trialing", "past_due"].includes(String(status || "").toLowerCase());
+  await connection.query(
+    `update users set plan=$1,updated_at=now() where id=$2`,
+    [active && plan ? plan : "Basis", userId]
+  );
+}
+
 const server = http.createServer(async (req, res) => {
   res.req = req;
   if (req.method === "OPTIONS") return send(res, 204, {});
 
   const url = new URL(req.url, "http://localhost");
   const key = `${req.method} ${url.pathname}`;
-  const pathnameParts = url.pathname.split("/");
 
   try {
     if (key === "GET /health") {
@@ -431,25 +483,44 @@ const server = http.createServer(async (req, res) => {
     if (key === "POST /auth/register") {
       if (!pool) return send(res, 503, { error: "database_not_configured" });
       const body = await jsonBody(req);
-      const name = String(body.name || "").trim();
+      const firstName = String(body.firstName ?? "").trim();
+      const lastName = String(body.lastName ?? "").trim();
+      const age = body.age;
       const email = String(body.email || "").trim().toLowerCase();
+      const phone = String(body.phone ?? "").trim();
       const password = String(body.password || "");
-      if (!name || !email.includes("@") || password.length < 10) {
+
+      if (
+        !firstName ||
+        !lastName ||
+        !Number.isInteger(age) ||
+        age < 16 ||
+        age > 120 ||
+        !email.includes("@") ||
+        phone.length < 6 ||
+        phone.length > 30 ||
+        password.length < 10
+      ) {
         return send(res, 400, { error: "invalid_registration" });
       }
 
+      const name = `${firstName} ${lastName}`;
       const passwordData = hp(password);
       const id = crypto.randomUUID();
       const role = email === OWNER_EMAIL ? "owner" : "user";
       try {
         await pool.query(
-          `insert into users(id,name,email,password_hash,password_salt,role)
-           values($1,$2,$3,$4,$5,$6)`,
-          [id, name, email, passwordData.h, passwordData.s, role]
+          `insert into users(id,name,first_name,last_name,age,phone,email,password_hash,password_salt,role)
+           values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [id, name, firstName, lastName, age, phone, email, passwordData.h, passwordData.s, role]
         );
         const created = {
           id,
           name,
+          first_name: firstName,
+          last_name: lastName,
+          age,
+          phone,
           email,
           plan: "Basis",
           status: "active",
@@ -486,7 +557,7 @@ const server = http.createServer(async (req, res) => {
       const updated = await pool.query(
         `update users set last_login_at=now(),role=case when lower(email)=$2 then 'owner' else role end
          where id=$1
-         returning id,name,email,plan,status,role,last_login_at`,
+         returning id,name,first_name,last_name,age,phone,email,plan,status,role,last_login_at`,
         [account.id, OWNER_EMAIL]
       );
       return send(res, 200, {
@@ -662,6 +733,12 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (key === "GET /entitlements") {
+      const current = await user(req);
+      if (!current) return send(res, 401, { error: "not_logged_in" });
+      return send(res, 200, entitlementData(current));
+    }
+
     if (key === "GET /budget-profile") {
       const current = await user(req);
       if (!current) return send(res, 401, { error: "not_logged_in" });
@@ -670,21 +747,17 @@ const server = http.createServer(async (req, res) => {
          from budget_profiles where user_id=$1`,
         [current.id]
       );
-      return send(
-        res,
-        200,
-        {
-          budgetProfile: budgetProfile(
-            result.rows[0] || {
-              income: 0,
-              fixed_expenses: 0,
-              reservations: 0,
-              days_remaining: 30,
-              updated_at: null
-            }
-          )
-        }
-      );
+      return send(res, 200, {
+        budgetProfile: budgetProfile(
+          result.rows[0] || {
+            income: 0,
+            fixed_expenses: 0,
+            reservations: 0,
+            days_remaining: 30,
+            updated_at: null
+          }
+        )
+      });
     }
 
     if (key === "PUT /budget-profile") {
@@ -704,14 +777,10 @@ const server = http.createServer(async (req, res) => {
         days_remaining: 30
       };
 
-      const rawIncome = body.income ?? existing.income;
-      const rawFixedExpenses = body.fixed_expenses ?? existing.fixed_expenses;
-      const rawReservations = body.reservations ?? existing.reservations;
-      const rawDays = body.days_remaining ?? existing.days_remaining;
-      const income = Number(rawIncome);
-      const fixedExpenses = Number(rawFixedExpenses);
-      const reservations = Number(rawReservations);
-      const daysRemaining = Number(rawDays);
+      const income = Number(body.income ?? existing.income);
+      const fixedExpenses = Number(body.fixed_expenses ?? existing.fixed_expenses);
+      const reservations = Number(body.reservations ?? existing.reservations);
+      const daysRemaining = Number(body.days_remaining ?? existing.days_remaining);
 
       if (
         ![income, fixedExpenses, reservations].every(
@@ -784,7 +853,10 @@ const server = http.createServer(async (req, res) => {
       const message = String(body.message || "").trim();
       if (!subject || !message) return send(res, 400, { error: "invalid_ticket" });
 
-      const priority = current.plan === "Max" ? "High" : "Normal";
+      const priority =
+        current.plan === "Max" || ["owner", "moderator"].includes(current.role)
+          ? "High"
+          : "Normal";
       const id = crypto.randomUUID();
       const result = await pool.query(
         `insert into support_tickets(id,user_id,subject,message,priority)
@@ -798,7 +870,10 @@ const server = http.createServer(async (req, res) => {
     if (key === "GET /billing/web/paddle/config") {
       const current = await user(req);
       if (!current) return send(res, 401, { error: "not_logged_in" });
-      if (current.plan && current.plan !== "Basis") {
+      if (["owner", "moderator"].includes(current.role)) {
+        return send(res, 403, { error: "admin_does_not_require_subscription" });
+      }
+      if (current.plan && current.plan !== "Basis" && current.plan !== "Basic") {
         return send(res, 409, { error: "active_subscription", plan: current.plan });
       }
       return send(res, 200, {
@@ -818,15 +893,18 @@ const server = http.createServer(async (req, res) => {
         return send(res, 401, { error: "invalid_signature" });
       }
 
-      const event = JSON.parse(rawBody || "{}");
+      let event;
+      try {
+        event = JSON.parse(rawBody || "{}");
+      } catch {
+        return send(res, 400, { error: "invalid_event" });
+      }
+
+      if (!pool) return send(res, 503, { error: "database_not_configured" });
+
       const data = event.data || {};
       const eventId = String(event.event_id || "");
       const eventType = String(event.event_type || "");
-      const userId = String(data?.custom_data?.saldo_slim_user_id || "").trim() || null;
-      const paddlePriceId = priceId(data);
-      const plan = priceMap.get(paddlePriceId) || null;
-      const subscriptionId = String(
-        data?.subscription_id || (eventType.startsWith("subscription.") ? data.id : "") || ""
-      ).trim() || null;
-      const transactionId = String(
-        eventType.startsWith("transaction.") ? data.id :
+      if (!eventId || !eventType) return send(res, 400, { error: "invalid_event" });
+
+      let userId
