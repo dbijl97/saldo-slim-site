@@ -907,4 +907,183 @@ const server = http.createServer(async (req, res) => {
       const eventType = String(event.event_type || "");
       if (!eventId || !eventType) return send(res, 400, { error: "invalid_event" });
 
-      let userId
+      let userId = String(data?.custom_data?.saldo_slim_user_id || "").trim() || null;
+      const currentPriceId = priceId(data);
+      let plan = priceMap.get(currentPriceId) || null;
+      const subscriptionId = String(
+        data?.subscription_id || (eventType.startsWith("subscription.") ? data.id : "") || ""
+      ).trim() || null;
+      const transactionId = String(
+        eventType.startsWith("transaction.") ? data.id : data?.transaction_id || ""
+      ).trim() || null;
+      const paddleStatus = String(data?.status || "").toLowerCase();
+
+      const connection = await pool.connect();
+      try {
+        await connection.query("begin");
+
+        const duplicate = await connection.query(
+          "select 1 from payment_events where event_id=$1",
+          [eventId]
+        );
+        if (duplicate.rowCount) {
+          await connection.query("rollback");
+          return send(res, 200, { ok: true, duplicate: true });
+        }
+
+        if (userId) {
+          const exists = await connection.query(
+            "select id from users where id=$1",
+            [userId]
+          );
+          if (!exists.rowCount) userId = null;
+        }
+
+        if (!userId && subscriptionId) {
+          const linked = await connection.query(
+            `select user_id,plan
+             from subscriptions
+             where provider='paddle' and external_subscription_id=$1
+             order by updated_at desc
+             limit 1`,
+            [subscriptionId]
+          );
+          if (linked.rowCount) {
+            userId = linked.rows[0].user_id;
+            if (!plan) plan = linked.rows[0].plan;
+          }
+        }
+
+        if (!userId && transactionId) {
+          const linked = await connection.query(
+            `select user_id,plan
+             from subscriptions
+             where provider='paddle' and external_transaction_id=$1
+             order by updated_at desc
+             limit 1`,
+            [transactionId]
+          );
+          if (linked.rowCount) {
+            userId = linked.rows[0].user_id;
+            if (!plan) plan = linked.rows[0].plan;
+          }
+        }
+
+        let subscriptionStatus = paddleStatus || "active";
+
+        if (eventType === "transaction.paid" || eventType === "transaction.completed") {
+          subscriptionStatus = "active";
+          if (userId && plan) {
+            await connection.query(
+              "update users set plan=$1,updated_at=now() where id=$2",
+              [plan, userId]
+            );
+          }
+        }
+
+        if (eventType.startsWith("subscription.")) {
+          if (paddleStatus === "past_due") {
+            subscriptionStatus = "grace_period";
+          } else if (paddleStatus === "canceled" || paddleStatus === "paused") {
+            subscriptionStatus = "cancelled";
+          } else if (paddleStatus === "active" || paddleStatus === "trialing") {
+            subscriptionStatus = paddleStatus;
+          }
+
+          if (userId) {
+            await updateSubscriptionUserPlan(connection, userId, plan, paddleStatus);
+          }
+        }
+
+        if (userId && subscriptionId) {
+          const effectivePlan =
+            plan ||
+            (
+              await connection.query(
+                "select plan from users where id=$1",
+                [userId]
+              )
+            ).rows[0]?.plan ||
+            "Basis";
+
+          await connection.query(
+            `insert into subscriptions(
+               id,user_id,provider,external_subscription_id,external_transaction_id,
+               plan,status,price_id
+             )
+             values($1,$2,'paddle',$3,$4,$5,$6,$7)
+             on conflict(provider,external_subscription_id)
+             where external_subscription_id is not null
+             do update set
+               user_id=excluded.user_id,
+               external_transaction_id=coalesce(excluded.external_transaction_id,subscriptions.external_transaction_id),
+               plan=excluded.plan,
+               status=excluded.status,
+               price_id=coalesce(excluded.price_id,subscriptions.price_id),
+               updated_at=now()`,
+            [
+              crypto.randomUUID(),
+              userId,
+              subscriptionId,
+              transactionId,
+              effectivePlan,
+              subscriptionStatus,
+              currentPriceId
+            ]
+          );
+        }
+
+        await connection.query(
+          "insert into payment_events(event_id,event_type) values($1,$2)",
+          [eventId, eventType]
+        );
+
+        await connection.query("commit");
+        console.log(
+          JSON.stringify({
+            eventId,
+            eventType,
+            transactionId,
+            subscriptionId,
+            priceId: currentPriceId,
+            plan,
+            userId,
+            status: subscriptionStatus
+          })
+        );
+        return send(res, 200, {
+          ok: true,
+          persisted: true,
+          linkedUser: Boolean(userId),
+          plan
+        });
+      } catch (error) {
+        try {
+          await connection.query("rollback");
+        } catch {}
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+
+    return send(res, 404, { error: "not_found" });
+  } catch (error) {
+    console.error(error);
+    return send(res, Number(error?.statusCode || 500), {
+      error:
+        Number(error?.statusCode || 500) >= 500
+          ? "internal_error"
+          : String(error?.message || "request_error")
+    });
+  }
+});
+
+schema()
+  .then(() => {
+    server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+  })
+  .catch((error) => {
+    console.error("db_init", error);
+    server.listen(PORT, () => console.log(`Server listening on ${PORT} without DB`));
+  });
