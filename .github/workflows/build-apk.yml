@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Release tag
         required: true
-        default: v1.1.0
+        default: v1.2.0
 
 permissions:
   contents: write
@@ -61,18 +61,25 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          APK=mobile/android/app/build/outputs/apk/release/app-release.apk
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          "$APKSIGNER" verify --verbose "$APK"
+
       - name: Prepare APK
         run: |
-          cp mobile/android/app/build/outputs/apk/release/app-release.apk saldo-slim-v1.1.apk
-          sha256sum saldo-slim-v1.1.apk > saldo-slim-v1.1.sha256
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk saldo-slim-v1.2.apk
+          sha256sum saldo-slim-v1.2.apk > saldo-slim-v1.2.sha256
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: saldo-slim-v1.1-apk
+          name: saldo-slim-v1.2-apk
           path: |
-            saldo-slim-v1.1.apk
-            saldo-slim-v1.1.sha256
+            saldo-slim-v1.2.apk
+            saldo-slim-v1.2.sha256
           retention-days: 30
 
       - name: Publish GitHub release
@@ -81,9 +88,7 @@ jobs:
           TAG: ${{ inputs.release_tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" saldo-slim-v1.1.apk saldo-slim-v1.1.sha256 --clobber
+            gh release upload "$TAG" saldo-slim-v1.2.apk saldo-slim-v1.2.sha256 --clobber
           else
-            gh release create "$TAG" saldo-slim-v1.1.apk saldo-slim-v1.1.sha256 \
-              --title "Saldo Slim 1.1" \
-              --notes "Directe Android APK. Google Play-betalingen en automatische Play Store-deploy zijn uitgeschakeld. Webabonnementen lopen via Paddle."
+            gh release create "$TAG" saldo-slim-v1.2.apk saldo-slim-v1.2.sha256               --title "Saldo Slim 1.2"               --notes "Android APK met onboarding, verbeterde login, stapsgewijze budgetplanning, support en geïntegreerd owner/moderator-adminpaneel. Google Play-betalingen en automatische Play Store-deploy zijn uitgeschakeld."
           fi
