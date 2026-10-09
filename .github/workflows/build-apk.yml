@@ -77,8 +77,8 @@ jobs:
 
       - name: Publish GitHub release
         env:
-          GH_TOKEN: \${{ github.token }}
-          TAG: \${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" saldo-slim-v1.1.apk saldo-slim-v1.1.sha256 --clobber
