@@ -1,24 +1,225 @@
 <!doctype html>
-<html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Account – Saldo Slim</title><link rel="stylesheet" href="styles.css"><script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script></head>
-<body><header><div class="nav"><a class="brand" href="index.html">Saldo Slim</a><nav><a href="pricing.html">Prijzen</a><a href="account.html">Account</a></nav></div></header>
-<main><h1>Saldo Slim account</h1><p class="muted">Log in of maak een account. Webabonnementen worden daarna aan dit account gekoppeld.</p>
-<div class="grid">
-<div class="card"><h2>Registreren</h2><input id="rname" placeholder="Naam"><br><br><input id="remail" type="email" placeholder="E-mail"><br><br><input id="rpass" type="password" placeholder="Wachtwoord (min. 10 tekens)"><br><br><button class="cta" id="register">Registreren</button></div>
-<div class="card"><h2>Inloggen</h2><input id="lemail" type="email" placeholder="E-mail"><br><br><input id="lpass" type="password" placeholder="Wachtwoord"><br><br><button class="cta" id="login">Inloggen</button></div></div>
-<div class="card" style="margin-top:24px"><h2>Status</h2><pre id="status">Niet ingelogd.</pre></div>
-<div class="grid" id="plans" style="margin-top:24px;display:none">
-<div class="card"><h3>Plus €4,99</h3><button class="cta buy" data-plan="Plus">Koop Plus</button></div>
-<div class="card"><h3>Pro €10</h3><button class="cta buy" data-plan="Pro">Koop Pro</button></div>
-<div class="card"><h3>Max €20</h3><button class="cta buy" data-plan="Max">Koop Max</button></div></div>
-<p id="msg" class="notice" style="margin-top:20px"></p></main>
-<script>
-const API="https://saldo-slim-api.onrender.com";
-let token=localStorage.getItem("saldoSlimToken")||"",config=null,paddle=false;
-const el=id=>document.getElementById(id);
-async function api(path,opt={}){const h={"content-type":"application/json",...(opt.headers||{})};if(token)h.authorization="Bearer "+token;const r=await fetch(API+path,{...opt,headers:h});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||("HTTP "+r.status));return d}
-async function refresh(){if(!token){el("status").textContent="Niet ingelogd.";el("plans").style.display="none";return}try{const me=await api("/me");el("status").textContent=JSON.stringify(me,null,2);el("plans").style.display="grid"; if(me.user && me.user.plan && me.user.plan!=="Basis"){document.querySelectorAll(".buy").forEach(b=>{b.disabled=true;b.textContent="Actief abonnement";}); el("msg").textContent="Je hebt al een actief "+me.user.plan+"-abonnement. Annuleer dit eerst in Paddle voordat je een ander plan koopt."; return;} config=await api("/billing/web/paddle/config");if(!config.clientToken)throw new Error("Paddle client token is nog niet ingesteld op de backend.");if(!paddle){Paddle.Initialize({token:config.clientToken});paddle=true}}catch(e){el("msg").textContent=e.message}}
-el("register").onclick=async()=>{try{const d=await api("/auth/register",{method:"POST",body:JSON.stringify({name:el("rname").value,email:el("remail").value,password:el("rpass").value})});token=d.token;localStorage.setItem("saldoSlimToken",token);el("msg").textContent="Account aangemaakt.";await refresh()}catch(e){el("msg").textContent=e.message}};
-el("login").onclick=async()=>{try{const d=await api("/auth/login",{method:"POST",body:JSON.stringify({email:el("lemail").value,password:el("lpass").value})});token=d.token;localStorage.setItem("saldoSlimToken",token);el("msg").textContent="Ingelogd.";await refresh()}catch(e){el("msg").textContent=e.message}};
-document.querySelectorAll(".buy").forEach(b=>b.onclick=async()=>{try{if(!config)await refresh();const p=b.dataset.plan;Paddle.Checkout.open({items:[{priceId:config.prices[p],quantity:1}],customData:{saldo_slim_user_id:config.userId},settings:{displayMode:"overlay",theme:"light",locale:"nl"}})}catch(e){el("msg").textContent=e.message}});
-refresh();
-</script></body></html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Account – Saldo Slim</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+</head>
+<body>
+  <header>
+    <div class="nav">
+      <a class="brand" href="index.html">Saldo Slim</a>
+      <nav>
+        <a href="pricing.html">Prijzen</a>
+        <a href="account.html">Account</a>
+        <a id="adminNavLink" href="admin.html" style="display:none">Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <h1>Saldo Slim account</h1>
+    <p class="muted">Log in of maak een account. Webabonnementen worden daarna aan dit account gekoppeld.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Registreren</h2>
+        <input id="rname" placeholder="Naam" autocomplete="name"><br><br>
+        <input id="remail" type="email" placeholder="E-mail" autocomplete="email"><br><br>
+        <input id="rpass" type="password" placeholder="Wachtwoord (min. 10 tekens)" autocomplete="new-password"><br><br>
+        <button class="cta" id="register" type="button">Registreren</button>
+      </div>
+
+      <div class="card">
+        <h2>Inloggen</h2>
+        <input id="lemail" type="email" placeholder="E-mail" autocomplete="email"><br><br>
+        <input id="lpass" type="password" placeholder="Wachtwoord" autocomplete="current-password"><br><br>
+        <button class="cta" id="login" type="button">Inloggen</button>
+        <p><button id="passwordHelp" type="button">Wachtwoord vergeten?</button></p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:24px">
+      <h2>Status</h2>
+      <pre id="status">Niet ingelogd.</pre>
+      <p id="adminPanelContainer" style="display:none">
+        <a class="cta" id="adminPanelButton" href="admin.html">Open adminpaneel</a>
+      </p>
+    </div>
+
+    <div class="grid" id="plans" style="margin-top:24px;display:none">
+      <div class="card">
+        <h3>Plus €4,99</h3>
+        <button class="cta buy" data-plan="Plus" type="button">Koop Plus</button>
+      </div>
+      <div class="card">
+        <h3>Pro €10</h3>
+        <button class="cta buy" data-plan="Pro" type="button">Koop Pro</button>
+      </div>
+      <div class="card">
+        <h3>Max €20</h3>
+        <button class="cta buy" data-plan="Max" type="button">Koop Max</button>
+      </div>
+    </div>
+
+    <p id="msg" class="notice" style="margin-top:20px" aria-live="polite"></p>
+  </main>
+
+  <script>
+    const API = "https://saldo-slim-api.onrender.com";
+    let token = localStorage.getItem("saldoSlimToken") || "";
+    let config = null;
+    let paddle = false;
+
+    const el = id => document.getElementById(id);
+
+    async function api(path, opt = {}) {
+      const headers = {
+        "content-type": "application/json",
+        ...(opt.headers || {})
+      };
+      if (token) headers.authorization = "Bearer " + token;
+
+      const response = await fetch(API + path, { ...opt, headers });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || ("HTTP " + response.status));
+      }
+      return data;
+    }
+
+    function setAdminVisibility(visible) {
+      el("adminNavLink").style.display = visible ? "" : "none";
+      el("adminPanelContainer").style.display = visible ? "" : "none";
+    }
+
+    async function refresh() {
+      if (!token) {
+        setAdminVisibility(false);
+        el("status").textContent = "Niet ingelogd.";
+        el("plans").style.display = "none";
+        return;
+      }
+
+      setAdminVisibility(false);
+
+      try {
+        const me = await api("/me");
+        const user = me.user || {};
+        const role = user.role || "onbekend";
+        const canAccessAdmin = role === "owner" || role === "moderator";
+
+        el("status").textContent = "Rol: " + role + "\n\n" + JSON.stringify(me, null, 2);
+        setAdminVisibility(canAccessAdmin);
+        el("plans").style.display = "grid";
+
+        if (user.plan && user.plan !== "Basis") {
+          document.querySelectorAll(".buy").forEach(button => {
+            button.disabled = true;
+            button.textContent = "Actief abonnement";
+          });
+          el("msg").textContent =
+            "Je hebt al een actief " + user.plan +
+            "-abonnement. Annuleer dit eerst in Paddle voordat je een ander plan koopt.";
+          return;
+        }
+
+        document.querySelectorAll(".buy").forEach(button => {
+          button.disabled = false;
+          button.textContent = "Koop " + button.dataset.plan;
+        });
+
+        config = await api("/billing/web/paddle/config");
+        if (!config.clientToken) {
+          throw new Error("Paddle client token is nog niet ingesteld op de backend.");
+        }
+        if (!paddle) {
+          Paddle.Initialize({ token: config.clientToken });
+          paddle = true;
+        }
+      } catch (error) {
+        el("msg").textContent = error.message;
+      }
+    }
+
+    el("register").onclick = async () => {
+      try {
+        const data = await api("/auth/register", {
+          method: "POST",
+          body: JSON.stringify({
+            name: el("rname").value,
+            email: el("remail").value,
+            password: el("rpass").value
+          })
+        });
+        token = data.token;
+        localStorage.setItem("saldoSlimToken", token);
+        el("msg").textContent = "Account aangemaakt.";
+        await refresh();
+      } catch (error) {
+        el("msg").textContent = error.message;
+      }
+    };
+
+    el("login").onclick = async () => {
+      try {
+        const data = await api("/auth/login", {
+          method: "POST",
+          body: JSON.stringify({
+            email: el("lemail").value,
+            password: el("lpass").value
+          })
+        });
+        token = data.token;
+        localStorage.setItem("saldoSlimToken", token);
+        el("msg").textContent = "Ingelogd.";
+        await refresh();
+      } catch (error) {
+        el("msg").textContent = error.message;
+      }
+    };
+
+    el("passwordHelp").onclick = async () => {
+      try {
+        const data = await api("/auth/password-help", {
+          method: "POST",
+          body: JSON.stringify({ email: el("lemail").value })
+        });
+        const parts = [];
+        if (data.message) parts.push(data.message);
+        const supportEmail = data.supportEmail || data.support_email;
+        if (supportEmail) parts.push("Support: " + supportEmail);
+        el("msg").textContent = parts.join("\n");
+      } catch (error) {
+        el("msg").textContent = error.message;
+      }
+    };
+
+    document.querySelectorAll(".buy").forEach(button => {
+      button.onclick = async () => {
+        try {
+          if (!config) await refresh();
+          if (!config) return;
+
+          const plan = button.dataset.plan;
+          Paddle.Checkout.open({
+            items: [{ priceId: config.prices[plan], quantity: 1 }],
+            customData: { saldo_slim_user_id: config.userId },
+            settings: {
+              displayMode: "overlay",
+              theme: "light",
+              locale: "nl"
+            }
+          });
+        } catch (error) {
+          el("msg").textContent = error.message;
+        }
+      };
+    });
+
+    refresh();
+  </script>
+</body>
+</html>
