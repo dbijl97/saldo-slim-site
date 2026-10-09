@@ -79,8 +79,15 @@ const api = {
     authToken = token || null;
   },
 
-  register({ name, email, password }) {
-    return post('/auth/register', { name, email, password });
+  register({ firstName, lastName, age, email, phone, password }) {
+    return post('/auth/register', {
+      firstName,
+      lastName,
+      age,
+      email,
+      phone,
+      password,
+    });
   },
 
   login({ email, password }) {
@@ -97,6 +104,10 @@ const api = {
 
   getMe() {
     return get('/me');
+  },
+
+  getEntitlements() {
+    return get('/entitlements');
   },
 
   getBudgetProfile() {
