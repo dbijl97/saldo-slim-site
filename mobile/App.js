@@ -4,6 +4,7 @@ import {
   Linking,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -19,7 +20,6 @@ const WEB_ACCOUNT = 'https://saldo-slim.onrender.com/account.html';
 const INSTALL_URL = 'https://saldo-slim.onrender.com/installeren.html';
 const PADDLE_URL = 'https://vendors.paddle.com/';
 const SUPPORT_EMAIL = 'info@partydj-dylan.nl';
-const OWNER_EMAIL = 'dbijl97@outlook.com';
 
 const C = {
   navy: '#163A5F',
@@ -31,29 +31,48 @@ const C = {
   ink: '#203040',
   muted: '#617181',
   line: '#DCE3E8',
+  paleBlue: '#EAF1F7',
+  paleGreen: '#EAF4EF',
+  paleAmber: '#FBF4E4',
+  paleRed: '#F9ECEC',
 };
 
 const ONBOARDING_SLIDES = [
   {
-    title: 'Overzicht',
-    text: 'Zet je inkomen, vaste lasten en reserveringen overzichtelijk bij elkaar. Zo zie je wat er overblijft.',
-    mark: '1',
+    title: 'Alles in één overzicht',
+    text: 'Breng inkomen, vaste lasten en reserveringen samen in een helder budgetplan.',
+    illustration: 'wallet',
   },
   {
-    title: 'Veilig dagbedrag',
-    text: 'Saldo Slim deelt je beschikbare ruimte door het aantal dagen. Zo weet je wat je vandaag veilig kunt besteden.',
-    mark: '2',
+    title: 'Een veilig dagbedrag',
+    text: 'Zie hoeveel ruimte je per dag hebt en houd rekening met je vaste verplichtingen.',
+    illustration: 'shield',
   },
   {
-    title: 'Plannen stap voor stap',
-    text: 'Vul je bedragen in, kies hoeveel dagen je wilt plannen en bekijk daarna een helder resultaat.',
-    mark: '3',
+    title: 'Plannen in duidelijke stappen',
+    text: 'Vul je bedragen in, kies je periode en bekijk daarna direct je persoonlijke resultaat.',
+    illustration: 'path',
   },
   {
-    title: 'Privacy & abonnementen',
-    text: 'Beheer betaalde abonnementen via onze website en Paddle. Google Play-betalingen zijn uitgeschakeld.',
-    mark: '4',
+    title: 'Jouw gegevens blijven privé',
+    text: 'Beheer je abonnement via onze website. Betalingen via Google Play zijn uitgeschakeld.',
+    illustration: 'privacy',
   },
+];
+
+const FEATURE_DEFINITIONS = [
+  { key: 'planning', title: 'Budgetplanning', tier: 'Plus', description: 'Je budgetplan en vaste lasten aanpassen.' },
+  { key: 'scenarios', title: 'Scenario’s', tier: 'Plus', description: 'Bekijk wat een aankoop doet met je dagbudget.' },
+  { key: 'smart_warnings', title: 'Slimme waarschuwingen', tier: 'Plus', description: 'Krijg extra inzicht bij een krap budget.' },
+  { key: 'smart_notifications', title: 'Slimme meldingen', tier: 'Pro', description: 'Tot 25 meldingen per maand; onbeperkt op Max.' },
+  { key: 'savings_goals', title: 'Spaardoelen', tier: 'Pro', description: 'Volg je voortgang richting een spaardoel.' },
+  { key: 'analyses', title: 'Analyses', tier: 'Pro', description: 'Bekijk vaste lasten en reserveringen als percentage.' },
+  { key: 'forecasts', title: 'Prognoses', tier: 'Pro', description: 'Bekijk een eenvoudige veilige bestedingsprognose.' },
+  { key: 'export', title: 'Exporteren', tier: 'Pro', description: 'Deel een tekstrapport van je huidige budget.' },
+  { key: 'advanced_scenarios', title: 'Geavanceerde scenario’s', tier: 'Max', description: 'Extra ruimte voor uitgebreide scenario’s.' },
+  { key: 'longer_outlook', title: 'Langere vooruitblik', tier: 'Max', description: 'Kijk verder vooruit met je budget.' },
+  { key: 'protection_warnings', title: 'Beschermingswaarschuwingen', tier: 'Max', description: 'Extra inzicht in mogelijke budgetrisico’s.' },
+  { key: 'priority_support', title: 'Prioriteitssupport', tier: 'Max', description: 'Je supportverzoek krijgt prioriteit.' },
 ];
 
 function getRole(data) {
@@ -79,12 +98,7 @@ function money(value) {
 }
 
 function errorCode(error) {
-  return String(
-    error?.code ||
-      error?.response?.data?.code ||
-      error?.response?.code ||
-      '',
-  ).toLowerCase();
+  return String(error?.code || error?.response?.data?.code || error?.response?.code || '').toLowerCase();
 }
 
 function isUnauthorized(error) {
@@ -99,6 +113,62 @@ function errorMessage(error, fallback) {
     return 'E-mailprovider moet nog worden ingesteld';
   }
   return error?.message || fallback;
+}
+
+function unwrap(data) {
+  return data?.data && typeof data.data === 'object' && !Array.isArray(data.data)
+    ? data.data
+    : data || {};
+}
+
+function featureAliases(key) {
+  const aliases = {
+    planning: ['planning', 'budget_planning', 'fixed_expense_editing', 'fixed_expenses'],
+    scenarios: ['scenarios', 'scenario_calculations'],
+    smart_warnings: ['smart_warnings', 'warnings'],
+    smart_notifications: ['smart_notifications', 'notifications'],
+    savings_goals: ['savings_goals', 'goals'],
+    analyses: ['analyses', 'analysis'],
+    forecasts: ['forecasts', 'forecast'],
+    export: ['export', 'exports'],
+    advanced_scenarios: ['advanced_scenarios'],
+    longer_outlook: ['longer_outlook', 'extended_outlook'],
+    protection_warnings: ['protection_warnings', 'risk_warnings'],
+    priority_support: ['priority_support'],
+  };
+  return aliases[key] || [key];
+}
+
+function featureValue(features, key) {
+  if (!features) return undefined;
+  const aliases = featureAliases(key);
+  if (Array.isArray(features)) {
+    const found = features.find((item) =>
+      aliases.includes(String(typeof item === 'string' ? item : item?.key || item?.name || '').toLowerCase()),
+    );
+    if (found === undefined) return undefined;
+    return typeof found === 'object' ? found : true;
+  }
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(features, alias)) return features[alias];
+  }
+  return undefined;
+}
+
+function featureIsEnabled(value) {
+  if (value === true || value === 'true') return true;
+  if (value && typeof value === 'object') {
+    return value.enabled === true || value.available === true || value.unlocked === true;
+  }
+  return false;
+}
+
+function featureLimit(value) {
+  if (value && typeof value === 'object') {
+    const n = Number(value.limit ?? value.max ?? value.monthly_limit);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 function BrandMark({ small = false }) {
@@ -129,6 +199,7 @@ function Button({ title, onPress, variant = 'primary', disabled = false, accessi
         style={[
           styles.buttonText,
           (variant === 'secondary' || variant === 'quiet') && styles.secondaryText,
+          variant === 'danger' && styles.dangerText,
         ]}
       >
         {title}
@@ -157,9 +228,7 @@ function Field({
       secureTextEntry={secureTextEntry}
       keyboardType={keyboardType}
       multiline={multiline}
-      autoCapitalize={
-        autoCapitalize || (keyboardType === 'email-address' ? 'none' : 'sentences')
-      }
+      autoCapitalize={autoCapitalize || (keyboardType === 'email-address' ? 'none' : 'sentences')}
       autoCorrect={keyboardType !== 'email-address'}
       style={[styles.input, multiline && styles.multiline]}
     />
@@ -179,7 +248,7 @@ function Label({ children }) {
   return <Text style={styles.label}>{children}</Text>;
 }
 
-function Tab({ title, selected, onPress }) {
+function Tab({ title, selected, onPress, badge }) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -188,6 +257,7 @@ function Tab({ title, selected, onPress }) {
       style={[styles.tab, selected && styles.tabSelected]}
     >
       <Text style={[styles.tabText, selected && styles.tabTextSelected]}>{title}</Text>
+      {badge ? <Text style={styles.tabBadge}>{badge}</Text> : null}
     </Pressable>
   );
 }
@@ -198,19 +268,10 @@ function Notice({ text, onPress, onInstall }) {
     <View style={styles.notice}>
       <Text style={styles.noticeText}>{text}</Text>
       {text === 'E-mailprovider moet nog worden ingesteld' ? (
-        <Button
-          title="Installatie-informatie openen"
-          variant="secondary"
-          onPress={onInstall}
-        />
+        <Button title="Installatie-informatie openen" variant="secondary" onPress={onInstall} />
       ) : null}
       {onPress ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Melding sluiten"
-          onPress={onPress}
-          style={styles.noticeClose}
-        >
+        <Pressable accessibilityRole="button" onPress={onPress} style={styles.noticeClose}>
           <Text style={styles.noticeCloseText}>Sluiten</Text>
         </Pressable>
       ) : null}
@@ -221,12 +282,8 @@ function Notice({ text, onPress, onInstall }) {
 function Metric({ label, value }) {
   return (
     <View style={styles.metric}>
-      <Text style={styles.metricLabel} numberOfLines={2}>
-        {label}
-      </Text>
-      <Text style={styles.metricValue} numberOfLines={2}>
-        {String(value)}
-      </Text>
+      <Text style={styles.metricLabel} numberOfLines={2}>{label}</Text>
+      <Text style={styles.metricValue} numberOfLines={2}>{String(value)}</Text>
     </View>
   );
 }
@@ -234,17 +291,7 @@ function Metric({ label, value }) {
 function compactMetrics(data) {
   const source = data?.data && !Array.isArray(data.data) ? data.data : data;
   if (!source || typeof source !== 'object') return [];
-  const preferred = [
-    'users',
-    'totalUsers',
-    'activeUsers',
-    'subscriptions',
-    'activeSubscriptions',
-    'revenue',
-    'payouts',
-    'openSupport',
-    'supportTickets',
-  ];
+  const preferred = ['users', 'totalUsers', 'activeUsers', 'subscriptions', 'activeSubscriptions', 'revenue', 'payouts', 'openSupport', 'supportTickets'];
   const labels = {
     users: 'Gebruikers',
     totalUsers: 'Totaal gebruikers',
@@ -263,7 +310,6 @@ function compactMetrics(data) {
     }
   });
   if (entries.length) return entries.slice(0, 6);
-
   return Object.entries(source)
     .filter(([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value))
     .slice(0, 6)
@@ -273,51 +319,98 @@ function compactMetrics(data) {
     ]);
 }
 
+function Illustration({ type }) {
+  if (type === 'wallet') {
+    return (
+      <View style={styles.illustration}>
+        <View style={styles.walletBack} />
+        <View style={styles.wallet}>
+          <View style={styles.walletStripe} />
+          <View style={styles.walletChip}><Text style={styles.walletChipText}>€</Text></View>
+          <View style={styles.walletPocket}><Text style={styles.walletPocketText}>Saldo</Text></View>
+          <View style={styles.walletCoin}><Text style={styles.coinText}>€</Text></View>
+        </View>
+        <View style={styles.walletMiniCard}>
+          <Text style={styles.illustrationMiniLabel}>BESCHIKBAAR</Text>
+          <Text style={styles.illustrationMiniValue}>€ 420</Text>
+        </View>
+      </View>
+    );
+  }
+  if (type === 'shield') {
+    return (
+      <View style={styles.illustration}>
+        <View style={styles.shieldShape}>
+          <Text style={styles.shieldIcon}>✓</Text>
+        </View>
+        <View style={styles.dailyCard}>
+          <Text style={styles.illustrationMiniLabel}>VEILIG PER DAG</Text>
+          <Text style={styles.dailyAmount}>€ 24,50</Text>
+          <View style={styles.dailyLine}><View style={styles.dailyLineFill} /></View>
+          <Text style={styles.dailyFoot}>Je houdt overzicht</Text>
+        </View>
+        <View style={styles.shieldSpark}><Text style={styles.sparkText}>+</Text></View>
+      </View>
+    );
+  }
+  if (type === 'path') {
+    return (
+      <View style={styles.illustration}>
+        <View style={styles.pathLine} />
+        <View style={styles.pathStepRow}>
+          <View style={[styles.pathDot, styles.pathDotDone]}><Text style={styles.pathDotText}>1</Text></View>
+          <View style={styles.pathStepCard}><Text style={styles.pathStepTitle}>Inkomen</Text><Text style={styles.pathStepSub}>Wat komt er binnen?</Text></View>
+        </View>
+        <View style={styles.pathStepRow}>
+          <View style={[styles.pathDot, styles.pathDotDone]}><Text style={styles.pathDotText}>2</Text></View>
+          <View style={styles.pathStepCard}><Text style={styles.pathStepTitle}>Vaste lasten</Text><Text style={styles.pathStepSub}>Wat reserveer je?</Text></View>
+        </View>
+        <View style={styles.pathStepRow}>
+          <View style={styles.pathDot, styles.pathDotLast}><Text style={styles.pathDotText}>3</Text></View>
+          <View style={styles.pathStepCard}><Text style={styles.pathStepTitle}>Jouw resultaat</Text><Text style={styles.pathStepSub}>Een duidelijk dagbedrag</Text></View>
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.illustration}>
+      <View style={styles.privacyCircle}><Text style={styles.privacyLock}>⌑</Text></View>
+      <View style={styles.privacyCard}>
+        <View style={styles.privacyRow}><View style={styles.privacyDot} /><View style={styles.privacyBar} /><Text style={styles.privacyCheck}>✓</Text></View>
+        <View style={styles.privacyRow}><View style={styles.privacyDot} /><View style={[styles.privacyBar, styles.privacyBarShort]} /><Text style={styles.privacyCheck}>✓</Text></View>
+        <View style={styles.privacyRow}><View style={styles.privacyDot} /><View style={styles.privacyBar} /><Text style={styles.privacyCheck}>✓</Text></View>
+      </View>
+      <View style={styles.privacyTag}><Text style={styles.privacyTagText}>PRIVÉ</Text></View>
+    </View>
+  );
+}
+
 function AdminUser({ item, isOwner, disabled, onRole, onStatus }) {
   const id = itemId(item);
   const currentRole = String(item?.role || 'user').toLowerCase();
   const currentStatus = String(item?.status || 'active').toLowerCase();
-
+  const firstName = item?.firstName || item?.first_name || '';
+  const lastName = item?.lastName || item?.last_name || '';
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || item?.name || 'Gebruiker';
   return (
     <View style={styles.adminRow}>
-      <Text style={styles.rowTitle}>
-        {item?.name || item?.email || `Gebruiker ${id ?? ''}`}
-      </Text>
-      <Text style={styles.muted}>
-        {item?.email && item?.name ? `${item.email} · ` : ''}
-        Rol: {currentRole} · Status: {currentStatus}
-      </Text>
-      {isOwner && id != null ? (
+      <Text style={styles.rowTitle}>{fullName}</Text>
+      <Text style={styles.muted}>Leeftijd: {item?.age ?? '—'} · {item?.email || 'Geen e-mail'}</Text>
+      <Text style={styles.muted}>Telefoon: {item?.phone || '—'} · Plan: {item?.plan || '—'}</Text>
+      <Text style={styles.muted}>Status: {currentStatus} · Rol: {currentRole}</Text>
+      {isOwner && id != null && currentRole !== 'owner' ? (
         <>
-          <Text style={styles.adminActionLabel}>Rol instellen</Text>
           <View style={styles.buttonRow}>
             <Button
-              title="Gebruiker"
+              title={currentRole === 'moderator' ? 'Maak gebruiker' : 'Maak moderator'}
               variant="secondary"
               disabled={disabled}
-              onPress={() => onRole(id, 'user')}
-            />
-            <Button
-              title="Moderator"
-              variant="secondary"
-              disabled={disabled}
-              onPress={() => onRole(id, 'moderator')}
+              onPress={() => onRole(id, currentRole === 'moderator' ? 'user' : 'moderator')}
             />
           </View>
-          <Text style={styles.adminActionLabel}>Accountstatus</Text>
           <View style={styles.buttonRow}>
-            <Button
-              title="Actief"
-              variant="secondary"
-              disabled={disabled}
-              onPress={() => onStatus(id, 'active')}
-            />
-            <Button
-              title="Uitgeschakeld"
-              variant="danger"
-              disabled={disabled}
-              onPress={() => onStatus(id, 'disabled')}
-            />
+            <Button title="Actief" variant="secondary" disabled={disabled} onPress={() => onStatus(id, 'active')} />
+            <Button title="Uitschakelen" variant="danger" disabled={disabled} onPress={() => onStatus(id, 'disabled')} />
           </View>
         </>
       ) : null}
@@ -330,35 +423,13 @@ function AdminSupport({ item, isOwner, disabled, onStatus }) {
   return (
     <View style={styles.adminRow}>
       <Text style={styles.rowTitle}>{item?.subject || `Verzoek ${id ?? ''}`}</Text>
-      <Text style={styles.muted}>
-        {item?.email ? `${item.email} · ` : ''}
-        Status: {item?.status || 'onbekend'}
-      </Text>
-      {item?.message ? (
-        <Text style={styles.adminDescription} numberOfLines={3}>
-          {item.message}
-        </Text>
-      ) : null}
+      <Text style={styles.muted}>{item?.email ? `${item.email} · ` : ''}Status: {item?.status || 'Open'}</Text>
+      {item?.message ? <Text style={styles.adminDescription} numberOfLines={3}>{item.message}</Text> : null}
       {isOwner && id != null ? (
         <View style={styles.buttonRow}>
-          <Button
-            title="Open"
-            variant="secondary"
-            disabled={disabled}
-            onPress={() => onStatus(id, 'open')}
-          />
-          <Button
-            title="Pending"
-            variant="secondary"
-            disabled={disabled}
-            onPress={() => onStatus(id, 'pending')}
-          />
-          <Button
-            title="Closed"
-            variant="secondary"
-            disabled={disabled}
-            onPress={() => onStatus(id, 'closed')}
-          />
+          <Button title="Open" variant="secondary" disabled={disabled} onPress={() => onStatus(id, 'open')} />
+          <Button title="Pending" variant="secondary" disabled={disabled} onPress={() => onStatus(id, 'pending')} />
+          <Button title="Closed" variant="secondary" disabled={disabled} onPress={() => onStatus(id, 'closed')} />
         </View>
       ) : null}
     </View>
@@ -378,15 +449,20 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingIndex, setOnboardingIndex] = useState(0);
+  const [onboardingForSettings, setOnboardingForSettings] = useState(false);
   const [screen, setScreen] = useState('dashboard');
-  const [authMode, setAuthMode] = useState('login');
+  const [authScreen, setAuthScreen] = useState('choice');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [age, setAge] = useState('');
+  const [phone, setPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [me, setMe] = useState(null);
+  const [entitlements, setEntitlements] = useState(null);
   const [income, setIncome] = useState('');
   const [fixed, setFixed] = useState('');
   const [reserve, setReserve] = useState('');
@@ -395,18 +471,32 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [admin, setAdmin] = useState({});
   const [adminBusy, setAdminBusy] = useState(false);
+  const [scenarioAmount, setScenarioAmount] = useState('');
+  const [scenarios, setScenarios] = useState([]);
+  const [goalTarget, setGoalTarget] = useState('');
+  const [goalCurrent, setGoalCurrent] = useState('');
 
   const applyProfile = useCallback((data) => {
-    const profile =
-      data?.budgetProfile ||
-      data?.data?.budgetProfile ||
-      data?.user?.budgetProfile ||
-      {};
+    const profile = data?.budgetProfile || data?.data?.budgetProfile || data?.user?.budgetProfile || {};
     if (profile.income != null) setIncome(String(profile.income));
     if (profile.fixed_expenses != null) setFixed(String(profile.fixed_expenses));
     else if (profile.fixedExpenses != null) setFixed(String(profile.fixedExpenses));
     if (profile.reservations != null) setReserve(String(profile.reservations));
     if (profile.days_remaining != null) setDays(String(profile.days_remaining));
+  }, []);
+
+  const clearSession = useCallback(async () => {
+    try {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+    } catch (_) {}
+    try {
+      api.setToken(null);
+    } catch (_) {}
+    setToken(null);
+    setMe(null);
+    setEntitlements(null);
+    setAdmin({});
+    setScreen('dashboard');
   }, []);
 
   useEffect(() => {
@@ -425,31 +515,16 @@ export default function App() {
       } catch (_) {
         if (mounted) setNotice('Inloggen kon niet automatisch worden hersteld.');
       }
-
       await new Promise((resolve) => setTimeout(resolve, 1400));
       if (!mounted) return;
-
       if (savedToken) setToken(savedToken);
-      if (!onboardingComplete) setShowOnboarding(true);
+      if (!onboardingComplete) {
+        setOnboardingForSettings(false);
+        setShowOnboarding(true);
+      }
       setBooting(false);
     })();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const clearSession = useCallback(async () => {
-    try {
-      await SecureStore.deleteItemAsync(TOKEN_KEY);
-    } catch (_) {
-      // De sessie wordt ook in het geheugen verwijderd.
-    }
-    api.setToken(null);
-    setToken(null);
-    setMe(null);
-    setAdmin({});
-    setScreen('dashboard');
+    return () => { mounted = false; };
   }, []);
 
   const loadMe = useCallback(async () => {
@@ -463,18 +538,40 @@ export default function App() {
         await clearSession();
         setNotice('Je sessie is verlopen. Log opnieuw in.');
       } else {
-        setNotice(errorMessage(error, 'Je overzicht laden is mislukt.'));
+        setNotice(errorMessage(error, 'Je profiel laden is mislukt.'));
       }
     }
   }, [token, booting, applyProfile, clearSession]);
 
+  const loadEntitlements = useCallback(async () => {
+    if (!token || booting || typeof api.getEntitlements !== 'function') return;
+    try {
+      const data = await api.getEntitlements();
+      setEntitlements(data);
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        await clearSession();
+        setNotice('Je sessie is verlopen. Log opnieuw in.');
+      } else {
+        setNotice(errorMessage(error, 'Je functies konden niet worden geladen.'));
+      }
+    }
+  }, [token, booting, clearSession]);
+
   useEffect(() => {
-    if (token && !booting) loadMe();
-  }, [token, booting, loadMe]);
+    if (token && !booting) {
+      loadMe();
+      loadEntitlements();
+    }
+  }, [token, booting, loadMe, loadEntitlements]);
 
   const role = getRole(me);
   const isAdmin = role === 'owner' || role === 'moderator';
   const isOwner = role === 'owner';
+  const entitlementData = unwrap(entitlements);
+  const features = entitlementData?.features || entitlementData?.entitlements?.features || null;
+  const planName = String(entitlementData?.plan || entitlementData?.subscription?.plan || entitlementData?.planName || 'Gratis');
+  const hasFeature = useCallback((key) => featureIsEnabled(featureValue(features, key)), [features]);
 
   const amounts = useMemo(() => {
     const incomeValue = parseAmount(income);
@@ -503,17 +600,16 @@ export default function App() {
         api.getAdminPayouts(),
         api.getAdminSupport(),
       ];
-      if (isOwner) calls.push(api.getAdminAudit());
+      if (isOwner && typeof api.getAdminAudit === 'function') calls.push(api.getAdminAudit());
       const results = await Promise.all(calls);
-      const next = {
+      setAdmin({
         overview: results[0],
         users: results[1],
         subscriptions: results[2],
         payouts: results[3],
         support: results[4],
-      };
-      if (isOwner) next.audit = results[5];
-      setAdmin(next);
+        ...(isOwner && results[5] ? { audit: results[5] } : {}),
+      });
     } catch (error) {
       if (isUnauthorized(error)) {
         await clearSession();
@@ -530,41 +626,49 @@ export default function App() {
     if (screen === 'admin' && isAdmin) loadAdmin();
   }, [screen, isAdmin, loadAdmin]);
 
-  async function authenticate() {
+  async function authenticate(mode) {
     const cleanEmail = email.trim();
     if (!cleanEmail || !password) {
       setNotice('Vul je e-mailadres en wachtwoord in.');
       return;
     }
-    if (authMode === 'register' && password.length < 10) {
-      setNotice('Je wachtwoord moet minimaal 10 tekens bevatten.');
-      return;
+    if (mode === 'register') {
+      const numericAge = Number(age);
+      if (!firstName.trim() || !lastName.trim() || !age.trim() || !cleanEmail || !phone.trim() || !password) {
+        setNotice('Vul alle verplichte registratievelden in.');
+        return;
+      }
+      if (!Number.isInteger(numericAge) || numericAge < 16 || numericAge > 120) {
+        setNotice('Leeftijd moet een heel getal van 16 tot en met 120 zijn.');
+        return;
+      }
+      if (password.length < 10) {
+        setNotice('Je wachtwoord moet minimaal 10 tekens bevatten.');
+        return;
+      }
     }
-    if (authMode === 'register' && !name.trim()) {
-      setNotice('Vul je naam in.');
-      return;
-    }
-
     setNotice('');
     setBusy(true);
     try {
-      const result =
-        authMode === 'register'
-          ? await api.register({ name: name.trim(), email: cleanEmail, password })
-          : await api.login({ email: cleanEmail, password });
-
-      const newToken =
-        result?.token ||
-        result?.accessToken ||
-        result?.data?.token ||
-        result?.data?.accessToken;
-
+      const result = mode === 'register'
+        ? await api.register({
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            age: Number(age),
+            email: cleanEmail,
+            phone: phone.trim(),
+            password,
+          })
+        : await api.login({ email: cleanEmail, password });
+      const newToken = result?.token || result?.accessToken || result?.data?.token || result?.data?.accessToken;
       if (!newToken) {
-        setNotice(result?.message || 'Je account is verwerkt. Log in om verder te gaan.');
-        if (authMode === 'register') setAuthMode('login');
+        setNotice(result?.message || 'Je registratie is verwerkt. Log in om verder te gaan.');
+        if (mode === 'register') {
+          setPassword('');
+          setAuthScreen('login');
+        }
         return;
       }
-
       await SecureStore.setItemAsync(TOKEN_KEY, newToken);
       api.setToken(newToken);
       setToken(newToken);
@@ -572,7 +676,7 @@ export default function App() {
       setPassword('');
       setNotice('');
     } catch (error) {
-      setNotice(errorMessage(error, 'Inloggen is mislukt.'));
+      setNotice(errorMessage(error, mode === 'register' ? 'Registreren is mislukt.' : 'Inloggen is mislukt.'));
     } finally {
       setBusy(false);
     }
@@ -588,9 +692,7 @@ export default function App() {
     setNotice('');
     try {
       await api.requestPasswordReset(cleanEmail);
-      setNotice(
-        `Als dit e-mailadres bij ons bekend is, ontvang je verdere instructies. Hulp nodig? Mail ${SUPPORT_EMAIL}.`,
-      );
+      setNotice(`Als dit e-mailadres bij ons bekend is, ontvang je verdere instructies. Hulp nodig? Mail ${SUPPORT_EMAIL}.`);
     } catch (error) {
       setNotice(errorMessage(error, `Aanvraag mislukt. Neem contact op via ${SUPPORT_EMAIL}.`));
     } finally {
@@ -601,11 +703,11 @@ export default function App() {
   async function logout() {
     await clearSession();
     setNotice('Je bent uitgelogd.');
+    setAuthScreen('choice');
   }
 
   function updateDays(value) {
-    const digits = value.replace(/[^0-9]/g, '').slice(0, 3);
-    setDays(digits);
+    setDays(value.replace(/[^0-9]/g, '').slice(0, 3));
   }
 
   async function saveBudgetProfile() {
@@ -643,15 +745,17 @@ export default function App() {
     setBusy(true);
     setNotice('');
     try {
-      const result = await api.sendSupport({
-        subject: subject.trim(),
-        message: message.trim(),
-      });
+      const result = await api.sendSupport({ subject: subject.trim(), message: message.trim() });
       setNotice(result?.message || 'Je bericht is verstuurd. We helpen je graag.');
       setSubject('');
       setMessage('');
     } catch (error) {
-      setNotice(errorMessage(error, 'Versturen is mislukt.'));
+      if (isUnauthorized(error)) {
+        await clearSession();
+        setNotice('Je sessie is verlopen. Log opnieuw in.');
+      } else {
+        setNotice(errorMessage(error, 'Versturen is mislukt.'));
+      }
     } finally {
       setBusy(false);
     }
@@ -666,7 +770,12 @@ export default function App() {
       setNotice('Wijziging opgeslagen.');
       await loadAdmin();
     } catch (error) {
-      setNotice(errorMessage(error, 'Wijziging mislukt.'));
+      if (isUnauthorized(error)) {
+        await clearSession();
+        setNotice('Je sessie is verlopen. Log opnieuw in.');
+      } else {
+        setNotice(errorMessage(error, 'Wijziging mislukt.'));
+      }
       setAdminBusy(false);
     }
   }
@@ -680,7 +789,7 @@ export default function App() {
   };
 
   async function sendOwnerReset() {
-    if (!isOwner) return;
+    if (!isOwner || typeof api.sendOwnerPasswordReset !== 'function') return;
     setNotice('');
     setAdminBusy(true);
     try {
@@ -701,247 +810,37 @@ export default function App() {
     }
     setShowOnboarding(false);
     setOnboardingIndex(0);
+    if (onboardingForSettings && token) {
+      setScreen('dashboard');
+      setOnboardingForSettings(false);
+    } else if (!token) {
+      setAuthScreen('choice');
+    }
   }
 
   function reopenOnboarding() {
     setOnboardingIndex(0);
+    setOnboardingForSettings(true);
     setShowOnboarding(true);
   }
 
-  if (booting) {
-    return (
-      <View style={styles.splash}>
-        <StatusBar style="dark" />
-        <BrandMark />
-        <Text style={styles.splashBrand}>Saldo Slim</Text>
-        <Text style={styles.splashSubtitle}>
-          Weet wat je vandaag veilig kunt besteden.
-        </Text>
-      </View>
-    );
+  function openFeature(feature) {
+    if (!hasFeature(feature.key)) {
+      openUrl(WEB_ACCOUNT);
+      return;
+    }
+    if (feature.key === 'planning') {
+      setScreen('income');
+      return;
+    }
+    setScreen(`feature:${feature.key}`);
   }
 
-  if (showOnboarding) {
-    const slide = ONBOARDING_SLIDES[onboardingIndex];
-    const lastSlide = onboardingIndex === ONBOARDING_SLIDES.length - 1;
-    return (
-      <View style={styles.page}>
-        <StatusBar style="dark" />
-        <ScrollView
-          contentContainerStyle={styles.onboardingWrap}
-          keyboardShouldPersistTaps="handled"
-        >
-          <BrandMark />
-          <Text style={styles.onboardingBrand}>Saldo Slim</Text>
-          <View style={styles.slideCard}>
-            <View style={styles.slideMark}>
-              <Text style={styles.slideMarkText}>{slide.mark}</Text>
-            </View>
-            <Text style={styles.slideTitle}>{slide.title}</Text>
-            <Text style={styles.slideText}>{slide.text}</Text>
-            {onboardingIndex === 3 ? (
-              <Text style={styles.smallCenter}>
-                Abonnementen lopen via web/Paddle. Betalingen via Google Play zijn
-                uitgeschakeld.
-              </Text>
-            ) : null}
-          </View>
-          <View style={styles.dots} accessibilityLabel={`Dia ${onboardingIndex + 1} van 4`}>
-            {ONBOARDING_SLIDES.map((item, index) => (
-              <View
-                key={item.mark}
-                style={[styles.dot, index === onboardingIndex && styles.dotSelected]}
-              />
-            ))}
-          </View>
-          <View style={styles.onboardingButtons}>
-            <View style={styles.onboardingButtonCell}>
-              <Button
-                title="Vorige"
-                variant="secondary"
-                disabled={onboardingIndex === 0}
-                onPress={() => setOnboardingIndex((current) => Math.max(0, current - 1))}
-              />
-            </View>
-            <View style={styles.onboardingButtonCell}>
-              <Button
-                title={lastSlide ? 'Aan de slag' : 'Volgende'}
-                onPress={() =>
-                  lastSlide
-                    ? finishOnboarding()
-                    : setOnboardingIndex((current) =>
-                        Math.min(ONBOARDING_SLIDES.length - 1, current + 1),
-                      )
-                }
-              />
-            </View>
-          </View>
-        </ScrollView>
-      </View>
-    );
-  }
-
-  if (!token) {
-    return (
-      <View style={styles.page}>
-        <StatusBar style="dark" />
-        <ScrollView
-          contentContainerStyle={styles.authWrap}
-          keyboardShouldPersistTaps="handled"
-        >
-          <BrandMark />
-          <Text style={styles.brand}>Saldo Slim</Text>
-          <Text style={styles.subtitle}>
-            Weet wat je vandaag veilig kunt besteden.
-          </Text>
-          <Card title={authMode === 'login' ? 'Welkom terug' : 'Account aanmaken'}>
-            {authMode === 'register' ? (
-              <>
-                <Label>Naam</Label>
-                <Field value={name} onChangeText={setName} placeholder="Je naam" />
-              </>
-            ) : null}
-            <Label>E-mailadres</Label>
-            <Field
-              value={email}
-              onChangeText={setEmail}
-              placeholder="naam@voorbeeld.nl"
-              keyboardType="email-address"
-            />
-            <Label>Wachtwoord</Label>
-            <View style={styles.passwordRow}>
-              <View style={styles.passwordField}>
-                <Field
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Wachtwoord"
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={showPassword ? 'Wachtwoord verbergen' : 'Wachtwoord tonen'}
-                onPress={() => setShowPassword((current) => !current)}
-                style={styles.togglePassword}
-              >
-                <Text style={styles.togglePasswordText}>
-                  {showPassword ? 'Verbergen' : 'Tonen'}
-                </Text>
-              </Pressable>
-            </View>
-            {authMode === 'register' ? (
-              <Text style={styles.fieldHint}>Gebruik minimaal 10 tekens.</Text>
-            ) : null}
-            <Button
-              title={
-                busy
-                  ? 'Even wachten…'
-                  : authMode === 'login'
-                    ? 'Inloggen'
-                    : 'Account aanmaken'
-              }
-              disabled={busy}
-              onPress={authenticate}
-            />
-            {authMode === 'login' ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={forgotPassword}
-                style={styles.linkWrap}
-              >
-                <Text style={styles.link}>Wachtwoord vergeten?</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setAuthMode(authMode === 'login' ? 'register' : 'login');
-                setNotice('');
-              }}
-              style={styles.linkWrap}
-            >
-              <Text style={styles.link}>
-                {authMode === 'login'
-                  ? 'Nog geen account? Registreren'
-                  : 'Al een account? Inloggen'}
-              </Text>
-            </Pressable>
-          </Card>
-          <Text style={styles.smallCenter}>
-            Betaalde abonnementen zijn uitsluitend beschikbaar via web/Paddle.
-            Google Play-betalingen zijn uitgeschakeld.
-          </Text>
-          <Notice
-            text={notice}
-            onPress={() => setNotice('')}
-            onInstall={() => openUrl(INSTALL_URL)}
-          />
-        </ScrollView>
-      </View>
-    );
-  }
-
-  const overview = admin.overview || {};
-  const overviewData = overview?.data || overview;
-  const paddleConfigured = overviewData?.paddleApiConfigured === true;
-  const users = getArray(admin.users, 'users');
-  const subscriptions = getArray(admin.subscriptions, 'subscriptions');
-  const payouts = getArray(admin.payouts, 'payouts');
-  const supportItems = getArray(admin.support, 'support');
-  const auditItems = getArray(admin.audit, 'audit');
-  const metrics = compactMetrics(admin.overview);
-
-  return (
-    <View style={styles.page}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <View style={styles.headerIdentity}>
-          <BrandMark small />
-          <View>
-            <Text style={styles.headerBrand}>Saldo Slim</Text>
-            <Text style={styles.headerSub}>Jouw financiële overzicht</Text>
-          </View>
-        </View>
-        <Pressable accessibilityRole="button" onPress={logout} style={styles.logoutButton}>
-          <Text style={styles.link}>Uitloggen</Text>
-        </Pressable>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabs}
-        contentContainerStyle={styles.tabsContent}
-      >
-        <Tab title="Overzicht" selected={screen === 'dashboard'} onPress={() => setScreen('dashboard')} />
-        <Tab title="Inkomen" selected={screen === 'income'} onPress={() => setScreen('income')} />
-        <Tab title="Vaste lasten" selected={screen === 'fixed'} onPress={() => setScreen('fixed')} />
-        <Tab title="Reserveren" selected={screen === 'reserve'} onPress={() => setScreen('reserve')} />
-        <Tab title="Periode" selected={screen === 'period'} onPress={() => setScreen('period')} />
-        <Tab title="Resultaat" selected={screen === 'summary'} onPress={() => setScreen('summary')} />
-        <Tab title="Support" selected={screen === 'support'} onPress={() => setScreen('support')} />
-        {isAdmin ? (
-          <Tab title="Admin" selected={screen === 'admin'} onPress={() => setScreen('admin')} />
-        ) : null}
-      </ScrollView>
-
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Notice
-          text={notice}
-          onPress={() => setNotice('')}
-          onInstall={() => openUrl(INSTALL_URL)}
-        />
-
-        {screen === 'dashboard' ? (
-          <>
-            <Card>
-              <View style={styles.dashboardTopline}>
-                <Text style={styles.cardTitle}>Jouw plan</Text>
-                <View style={styles.planBadge}>
-                  <Text style={styles.planBadgeText}>Budgetoverzicht</Text>
-                </View>
-              </View>
+  function addScenario() {
+    if (!hasFeature('scenarios')) {
+      openUrl(WEB_ACCOUNT);
+      return;
+    }
+    const value = parseAmount(scenarioAmount);
+    if (value <= 0) {
+      setNotice('Vul een aankoopbedrag
