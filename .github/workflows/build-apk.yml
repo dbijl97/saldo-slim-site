@@ -1,0 +1,82 @@
+name: Build Saldo Slim APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag
+        required: true
+        default: v1.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm install
+
+      - name: Generate native Android project
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_API_URL: https://saldo-slim-api.onrender.com
+          EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_IAP: 'false'
+          EXPO_PUBLIC_TEST_BILLING_ENABLED: 'false'
+        run: npx expo prebuild --platform android --clean --non-interactive
+
+      - name: Build release APK
+        working-directory: mobile/android
+        env:
+          EXPO_PUBLIC_API_URL: https://saldo-slim-api.onrender.com
+          EXPO_PUBLIC_ENABLE_GOOGLE_PLAY_IAP: 'false'
+          EXPO_PUBLIC_TEST_BILLING_ENABLED: 'false'
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Prepare APK
+        run: |
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk saldo-slim-v1.1.apk
+          sha256sum saldo-slim-v1.1.apk > saldo-slim-v1.1.sha256
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: saldo-slim-v1.1-apk
+          path: |
+            saldo-slim-v1.1.apk
+            saldo-slim-v1.1.sha256
+          retention-days: 30
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: \${{ github.token }}
+          TAG: \${{ inputs.release_tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" saldo-slim-v1.1.apk saldo-slim-v1.1.sha256 --clobber
+          else
+            gh release create "$TAG" saldo-slim-v1.1.apk saldo-slim-v1.1.sha256 \
+              --title "Saldo Slim 1.1" \
+              --notes "Directe Android APK. Google Play-betalingen en automatische Play Store-deploy zijn uitgeschakeld. Webabonnementen lopen via Paddle."
+          fi
