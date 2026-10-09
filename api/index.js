@@ -23,11 +23,18 @@ const priceMap = new Map(
   ].filter(([price]) => price)
 );
 
+const ALLOWED_ORIGINS = new Set([
+  "https://saldo-slim.onrender.com",
+  "https://partydj-dylan.nl",
+  "https://www.partydj-dylan.nl"
+]);
+
 function send(res, status, data) {
-  const origin = res.req?.headers?.origin;
+  const origin = String(res.req?.headers?.origin || "");
+  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://saldo-slim.onrender.com";
   const headers = {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": origin || "https://saldo-slim.onrender.com",
+    "access-control-allow-origin": allowOrigin,
     "access-control-allow-headers": "content-type,authorization,paddle-signature",
     "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
     vary: "Origin"
