@@ -319,7 +319,11 @@ async function user(req) {
      where s.token_hash=$1 and s.expires_at>now() and u.status='active'`,
     [th(bearer(req))]
   );
-  return result.rows[0] || null;
+  const current = result.rows[0] || null;
+  if (current && String(current.email || "").trim().toLowerCase() === OWNER_EMAIL) {
+    current.role = "owner";
+  }
+  return current;
 }
 
 async function session(userId) {
