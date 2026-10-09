@@ -739,7 +739,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { audit: result.rows });
     }
 
-    const roleMatch = req.method === "POST" && url.pathname.match(/^\\/admin\\/users\\/([^/]+)\\/role$/);
+    const roleMatch = req.method === "POST" && url.pathname.match(/^\/admin\/users\/([^/]+)\/role$/);
     if (roleMatch) {
       const actor = await requireAdmin(req, res, true);
       if (!actor) return;
@@ -762,7 +762,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     const userStatusMatch =
-      req.method === "POST" && url.pathname.match(/^\\/admin\\/users\\/([^/]+)\\/status$/);
+      req.method === "POST" && url.pathname.match(/^\/admin\/users\/([^/]+)\/status$/);
     if (userStatusMatch) {
       const actor = await requireAdmin(req, res, true);
       if (!actor) return;
@@ -785,7 +785,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     const ticketStatusMatch =
-      req.method === "POST" && url.pathname.match(/^\\/admin\\/support\\/([^/]+)\\/status$/);
+      req.method === "POST" && url.pathname.match(/^\/admin\/support\/([^/]+)\/status$/);
     if (ticketStatusMatch) {
       const actor = await requireAdmin(req, res, true);
       if (!actor) return;
