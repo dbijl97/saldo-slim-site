@@ -1,116 +1,33 @@
 import http from "node:http";
 import crypto from "node:crypto";
-
-const PORT = Number(process.env.PORT || 3001);
-const PRICE_TO_PLAN = new Map([
-  [process.env.PADDLE_PRICE_PLUS, "Plus"],
-  [process.env.PADDLE_PRICE_PRO, "Pro"],
-  [process.env.PADDLE_PRICE_MAX, "Max"],
-].filter(([id]) => Boolean(id)));
-
-const processed = new Set();
-
-function send(res, status, data) {
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
-    "access-control-allow-headers": "content-type, authorization, paddle-signature",
-    "access-control-allow-methods": "GET,POST,OPTIONS"
-  });
-  res.end(JSON.stringify(data));
-}
-
-async function rawBody(req) {
-  let raw = "";
-  for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > 200000) throw new Error("payload_too_large");
-  }
-  return raw;
-}
-
-function verifyPaddle(raw, header) {
-  const secret = String(process.env.PADDLE_WEBHOOK_SECRET || "");
-  if (!secret) return { ok: false, reason: "webhook_secret_not_configured" };
-  let ts = null;
-  const h1 = [];
-  for (const part of String(header || "").split(";")) {
-    const [k, v] = part.split("=");
-    if (k === "ts") ts = Number(v);
-    if (k === "h1" && v) h1.push(v);
-  }
-  if (!Number.isFinite(ts) || !h1.length) return { ok: false, reason: "missing_signature" };
-  if (Math.abs(Math.floor(Date.now()/1000) - ts) > 300) return { ok: false, reason: "signature_too_old" };
-  const expected = crypto.createHmac("sha256", secret).update(`${ts}:${raw}`).digest("hex");
-  const expectedBuf = Buffer.from(expected, "hex");
-  const valid = h1.some(sig => {
-    try {
-      const actual = Buffer.from(sig, "hex");
-      return actual.length === expectedBuf.length && crypto.timingSafeEqual(actual, expectedBuf);
-    } catch {
-      return false;
-    }
-  });
-  return valid ? { ok: true } : { ok: false, reason: "invalid_signature" };
-}
-
-function firstPriceId(data) {
-  for (const item of Array.isArray(data?.items) ? data.items : []) {
-    const id = item?.price?.id || item?.price_id || item?.priceId;
-    if (id) return String(id);
-  }
-  return null;
-}
-
-const server = http.createServer(async (req, res) => {
-  if (req.method === "OPTIONS") return send(res, 204, {});
-  const url = new URL(req.url, "http://localhost");
-
-  if (req.method === "GET" && url.pathname === "/health") {
-    return send(res, 200, {
-      ok: true,
-      service: "saldo-slim-api",
-      environment: "production",
-      webhookConfigured: Boolean(process.env.PADDLE_WEBHOOK_SECRET),
-      paddlePricesConfigured: PRICE_TO_PLAN.size === 3
-    });
-  }
-
-  if (req.method === "POST" && url.pathname === "/billing/paddle/webhook") {
-    try {
-      const raw = await rawBody(req);
-      const verification = verifyPaddle(raw, req.headers["paddle-signature"]);
-      if (!verification.ok) return send(res, 401, verification);
-
-      const event = raw ? JSON.parse(raw) : {};
-      const eventId = String(event.event_id || "");
-      if (eventId && processed.has(eventId)) return send(res, 200, { ok: true, duplicate: true });
-      if (eventId) processed.add(eventId);
-
-      const data = event.data || {};
-      const priceId = firstPriceId(data);
-      const plan = PRICE_TO_PLAN.get(priceId) || null;
-      const userId = String(data?.custom_data?.saldo_slim_user_id || data?.custom_data?.user_id || "") || null;
-
-      console.log(JSON.stringify({
-        at: new Date().toISOString(),
-        eventId,
-        eventType: event.event_type || null,
-        transactionId: String(event.event_type || "").startsWith("transaction.") ? data?.id || null : data?.transaction_id || null,
-        subscriptionId: data?.subscription_id || (String(event.event_type || "").startsWith("subscription.") ? data?.id || null : null),
-        priceId,
-        plan,
-        userId
-      }));
-
-      return send(res, 200, { ok: true, received: true, eventId, plan, linkedUser: Boolean(userId) });
-    } catch (error) {
-      console.error(error);
-      return send(res, 500, { ok: false, error: "internal_error" });
-    }
-  }
-
-  return send(res, 404, { error: "not_found" });
-});
-
-server.listen(PORT, () => console.log(`Saldo Slim API listening on ${PORT}`));
+import pg from "pg";
+const {Pool}=pg;
+const PORT=Number(process.env.PORT||3001);
+const DBURL=String(process.env.DATABASE_URL||"").trim();
+const pool=DBURL?new Pool({connectionString:DBURL,ssl:DBURL.includes("localhost")?false:{rejectUnauthorized:false}}):null;
+const priceMap=new Map([[process.env.PADDLE_PRICE_PLUS,"Plus"],[process.env.PADDLE_PRICE_PRO,"Pro"],[process.env.PADDLE_PRICE_MAX,"Max"]].filter(([x])=>x));
+function send(res,s,d){res.writeHead(s,{"content-type":"application/json","access-control-allow-origin":"https://saldo-slim.onrender.com","access-control-allow-headers":"content-type,authorization,paddle-signature","access-control-allow-methods":"GET,POST,OPTIONS"});res.end(JSON.stringify(d))}
+async function raw(req){let s="";for await(const c of req)s+=c;return s}
+function th(t){return crypto.createHash("sha256").update(t).digest("hex")}
+function hp(p,s=crypto.randomBytes(16).toString("hex")){return {s,h:crypto.scryptSync(p,s,64).toString("hex")}}
+function vp(p,s,h){try{const a=crypto.scryptSync(p,s,64),b=Buffer.from(h,"hex");return a.length===b.length&&crypto.timingSafeEqual(a,b)}catch{return false}}
+function sig(rawBody,h){const secret=String(process.env.PADDLE_WEBHOOK_SECRET||"");if(!secret)return false;let ts=null,hs=[];for(const p of String(h||"").split(";")){const [k,v]=p.split("=");if(k==="ts")ts=Number(v);if(k==="h1")hs.push(v)}if(!Number.isFinite(ts)||Math.abs(Math.floor(Date.now()/1000)-ts)>300)return false;const e=crypto.createHmac("sha256",secret).update(`${ts}:${rawBody}`).digest("hex");return hs.some(x=>{try{return crypto.timingSafeEqual(Buffer.from(e,"hex"),Buffer.from(x,"hex"))}catch{return false}})}
+function priceId(d){for(const i of Array.isArray(d?.items)?d.items:[]){const id=i?.price?.id||i?.price_id;if(id)return String(id)}return null}
+async function schema(){if(!pool)return;await pool.query(`
+create table if not exists users(id uuid primary key,name text not null,email text unique not null,password_hash text not null,password_salt text not null,plan text not null default 'Basis',status text not null default 'active',created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+create table if not exists sessions(token_hash text primary key,user_id uuid not null references users(id) on delete cascade,expires_at timestamptz not null,created_at timestamptz not null default now());
+create table if not exists subscriptions(id uuid primary key,user_id uuid not null references users(id) on delete cascade,provider text not null,external_subscription_id text,external_transaction_id text,plan text not null,status text not null,price_id text,updated_at timestamptz not null default now(),created_at timestamptz not null default now());
+create unique index if not exists sub_external on subscriptions(provider,external_subscription_id) where external_subscription_id is not null;
+create table if not exists payment_events(event_id text primary key,event_type text not null,processed_at timestamptz not null default now());`)}
+function bearer(req){return String(req.headers.authorization||"").replace(/^Bearer\s+/i,"")}
+async function user(req){if(!pool)return null;const q=await pool.query("select u.id,u.name,u.email,u.plan,u.status from sessions s join users u on u.id=s.user_id where s.token_hash=$1 and s.expires_at>now() and u.status='active'",[th(bearer(req))]);return q.rows[0]||null}
+async function session(id){const t=crypto.randomBytes(32).toString("hex");await pool.query("insert into sessions(token_hash,user_id,expires_at) values($1,$2,now()+interval '30 days')",[th(t),id]);return t}
+const server=http.createServer(async(req,res)=>{if(req.method==="OPTIONS")return send(res,204,{});const u=new URL(req.url,"http://localhost");const k=req.method+" "+u.pathname;try{
+if(k==="GET /health"){let ready=false;if(pool){try{await pool.query("select 1");ready=true}catch{}}return send(res,200,{ok:true,databaseConfigured:!!pool,databaseReady:ready,webhookConfigured:!!process.env.PADDLE_WEBHOOK_SECRET,paddlePricesConfigured:priceMap.size===3})}
+if(k==="POST /auth/register"){if(!pool)return send(res,503,{error:"database_not_configured"});const b=JSON.parse((await raw(req))||"{}"),name=String(b.name||"").trim(),email=String(b.email||"").trim().toLowerCase(),pass=String(b.password||"");if(!name||!email.includes("@")||pass.length<10)return send(res,400,{error:"invalid_registration"});const p=hp(pass),id=crypto.randomUUID();try{await pool.query("insert into users(id,name,email,password_hash,password_salt) values($1,$2,$3,$4,$5)",[id,name,email,p.h,p.s]);return send(res,201,{token:await session(id),user:{id,name,email,plan:"Basis"}})}catch(e){if(e.code==="23505")return send(res,409,{error:"email_exists"});throw e}}
+if(k==="POST /auth/login"){if(!pool)return send(res,503,{error:"database_not_configured"});const b=JSON.parse((await raw(req))||"{}"),email=String(b.email||"").trim().toLowerCase();const q=await pool.query("select * from users where email=$1",[email]),x=q.rows[0];if(!x||!vp(String(b.password||""),x.password_salt,x.password_hash))return send(res,401,{error:"invalid_login"});return send(res,200,{token:await session(x.id),user:{id:x.id,name:x.name,email:x.email,plan:x.plan}})}
+if(k==="GET /me"){const x=await user(req);if(!x)return send(res,401,{error:"not_logged_in"});const q=await pool.query("select provider,external_subscription_id,plan,status,updated_at from subscriptions where user_id=$1 order by updated_at desc limit 1",[x.id]);return send(res,200,{user:x,subscription:q.rows[0]||null})}
+if(k==="GET /billing/web/paddle/config"){const x=await user(req);if(!x)return send(res,401,{error:"not_logged_in"});return send(res,200,{clientToken:String(process.env.PADDLE_CLIENT_TOKEN||""),prices:{Plus:String(process.env.PADDLE_PRICE_PLUS||""),Pro:String(process.env.PADDLE_PRICE_PRO||""),Max:String(process.env.PADDLE_PRICE_MAX||"")},userId:x.id})}
+if(k==="POST /billing/paddle/webhook"){const r=await raw(req);if(!sig(r,req.headers["paddle-signature"]))return send(res,401,{error:"invalid_signature"});const e=JSON.parse(r||"{}"),d=e.data||{},eid=String(e.event_id||""),et=String(e.event_type||""),uid=String(d?.custom_data?.saldo_slim_user_id||"").trim()||null,pid=priceId(d),plan=priceMap.get(pid)||null,sid=String(d?.subscription_id||(et.startsWith("subscription.")?d.id:"")||"").trim()||null,tid=String(et.startsWith("transaction.")?d.id:d.transaction_id||"").trim()||null,status=String(d.status||"").toLowerCase();console.log(JSON.stringify({eid,et,uid,pid,plan,sid,tid,status}));if(!pool)return send(res,200,{ok:true,persisted:false});const c=await pool.connect();try{await c.query("begin");if(eid&&(await c.query("select 1 from payment_events where event_id=$1",[eid])).rowCount){await c.query("rollback");return send(res,200,{ok:true,duplicate:true})}if(uid&&(await c.query("select 1 from users where id=$1",[uid])).rowCount){let next=null,ss=null;if((et==="transaction.completed"||et==="transaction.paid")&&plan){next=plan;ss="active"}if(et.startsWith("subscription.")){if(status==="active"&&plan){next=plan;ss="active"}if(status==="past_due")ss="grace_period";if(status==="canceled"||status==="paused"){next="Basis";ss="cancelled"}}if(next)await c.query("update users set plan=$1,updated_at=now() where id=$2",[next,uid]);if(sid&&(plan||next)){await c.query(`insert into subscriptions(id,user_id,provider,external_subscription_id,external_transaction_id,plan,status,price_id) values($1,$2,'paddle',$3,$4,$5,$6,$7) on conflict(provider,external_subscription_id) where external_subscription_id is not null do update set external_transaction_id=excluded.external_transaction_id,plan=excluded.plan,status=excluded.status,price_id=excluded.price_id,updated_at=now()`,[crypto.randomUUID(),uid,sid,tid,plan||next||"Basis",ss||status||"active",pid])}}if(eid)await c.query("insert into payment_events(event_id,event_type) values($1,$2)",[eid,et]);await c.query("commit");return send(res,200,{ok:true,persisted:true,linkedUser:!!uid,plan})}catch(e){await c.query("rollback");throw e}finally{c.release()}}
+return send(res,404,{error:"not_found"})}catch(e){console.error(e);return send(res,500,{error:"internal_error"})}});
+schema().then(()=>server.listen(PORT,()=>console.log("Saldo Slim API ready"))).catch(e=>{console.error("db_init",e);server.listen(PORT,()=>console.log("Saldo Slim API ready without DB"))});
