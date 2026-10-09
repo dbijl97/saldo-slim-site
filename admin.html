@@ -9,27 +9,39 @@
   <style>
     [hidden] { display: none !important; }
     .admin-page { width: min(1200px, calc(100% - 2rem)); margin: 0 auto; padding: 1.5rem 0 3rem; }
-    .admin-nav { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+    .admin-nav { display: flex; flex-wrap: wrap; gap: .65rem 1rem; margin-bottom: 1.5rem; }
     .admin-nav a { color: inherit; }
-    .admin-header, .admin-section { margin-bottom: 1.5rem; }
-    .admin-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+    .admin-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .admin-header h1 { margin-bottom: .35rem; }
+    .admin-muted { color: #68736b; }
     .admin-badge { display: inline-block; padding: .4rem .75rem; border-radius: 999px; background: #fff1cc; color: #684c00; font-weight: 700; }
     .admin-notice { padding: 1rem; border-radius: .75rem; background: #f3f5f2; margin: 1rem 0; }
-    .admin-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 1rem; }
-    .admin-metric, .admin-section { border: 1px solid #e2e7e1; border-radius: .9rem; background: #fff; padding: 1rem; }
-    .admin-metric strong { display: block; font-size: 1.5rem; margin-top: .35rem; }
-    .admin-section { overflow-x: auto; }
-    .admin-section h2 { margin-top: 0; }
-    .admin-table { width: 100%; border-collapse: collapse; min-width: 620px; }
-    .admin-table th, .admin-table td { text-align: left; vertical-align: top; padding: .7rem; border-bottom: 1px solid #e8ece7; }
-    .admin-table th { font-size: .9rem; }
-    .admin-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
-    .admin-actions button { cursor: pointer; }
-    .admin-muted { color: #68736b; }
     .admin-message { margin: .75rem 0; }
+    .admin-message:empty { display: none; }
+    .admin-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .75rem; }
+    .admin-metric, .admin-section { border: 1px solid #e2e7e1; border-radius: .9rem; background: #fff; padding: 1rem; }
+    .admin-metric span { display: block; color: #68736b; font-size: .9rem; }
+    .admin-metric strong { display: block; font-size: 1.45rem; margin-top: .25rem; overflow-wrap: anywhere; }
+    .admin-section { margin-bottom: 1rem; }
+    .admin-section h2 { margin: 0 0 .8rem; font-size: 1.2rem; }
+    .admin-section p { margin-top: .4rem; }
+    .admin-table-wrap { overflow-x: auto; }
+    .admin-table { width: 100%; border-collapse: collapse; min-width: 560px; }
+    .admin-table th, .admin-table td { text-align: left; vertical-align: top; padding: .6rem .65rem; border-bottom: 1px solid #e8ece7; overflow-wrap: anywhere; }
+    .admin-table th { font-size: .88rem; white-space: nowrap; }
+    .admin-table tr:last-child td { border-bottom: 0; }
+    .admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; min-width: 150px; }
+    .admin-actions button, .admin-button { cursor: pointer; }
+    .admin-actions button, .admin-button { padding: .45rem .65rem; }
+    .admin-status-select { max-width: 130px; padding: .4rem; }
+    .admin-security { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+    .admin-security p { margin: .25rem 0; }
+    .admin-support { margin-top: 1.5rem; text-align: center; }
+    .admin-error { color: #8a1c1c; }
     @media (max-width: 600px) {
       .admin-page { width: min(100% - 1rem, 1200px); padding-top: 1rem; }
-      .admin-section { padding: .75rem; }
+      .admin-section, .admin-metric { padding: .75rem; }
+      .admin-table { min-width: 500px; }
     }
   </style>
 </head>
@@ -38,6 +50,7 @@
     <nav class="admin-nav" aria-label="Hoofdnavigatie">
       <a href="index.html">Home</a>
       <a href="account.html">Account</a>
+      <a href="installeren.html">Installeren</a>
       <a href="admin.html" aria-current="page">Admin</a>
     </nav>
 
@@ -73,6 +86,17 @@
         </div>
       </section>
 
+      <section id="securitySection" class="admin-section" aria-labelledby="securityTitle" hidden>
+        <div class="admin-security">
+          <div>
+            <h2 id="securityTitle">Beveiliging</h2>
+            <p>Eigenaar: <strong>dbijl97@outlook.com</strong></p>
+            <p class="admin-muted">Verstuur een wachtwoordreset naar het e-mailadres van de eigenaar.</p>
+          </div>
+          <button id="passwordResetButton" class="admin-button" type="button">Stuur wachtwoordreset naar eigenaar</button>
+        </div>
+      </section>
+
       <section class="admin-section" aria-labelledby="usersTitle">
         <h2 id="usersTitle">Gebruikers</h2>
         <div id="usersTable"></div>
@@ -80,6 +104,7 @@
 
       <section class="admin-section" aria-labelledby="subscriptionsTitle">
         <h2 id="subscriptionsTitle">Abonnementen</h2>
+        <p id="subscriptionNote" class="admin-muted" hidden></p>
         <div id="subscriptionsTable"></div>
       </section>
 
@@ -99,6 +124,10 @@
         <div id="auditTable"></div>
       </section>
     </div>
+
+    <footer class="admin-support admin-muted">
+      Hulp nodig? <a href="mailto:info@partydj-dylan.nl">info@partydj-dylan.nl</a>
+    </footer>
   </main>
 
   <script>
@@ -106,6 +135,7 @@
       "use strict";
 
       const API_BASE = "https://saldo-slim-api.onrender.com";
+      const OWNER_EMAIL = "dbijl97@outlook.com";
       const state = { token: "", role: "", paddleApiConfigured: false };
 
       const $ = (id) => document.getElementById(id);
@@ -114,7 +144,7 @@
       }[char]));
 
       function primitive(value) {
-        return (typeof value === "string" || typeof value === "number") ? String(value) : "";
+        return typeof value === "string" || typeof value === "number" ? String(value) : "";
       }
 
       function firstValue(object, keys) {
@@ -152,13 +182,24 @@
             ...(options.headers || {})
           }
         });
-        if (!response.ok) throw new Error("request_failed");
-        if (response.status === 204) return null;
-        try {
-          return await response.json();
-        } catch {
-          return null;
+
+        let payload = null;
+        if (response.status !== 204) {
+          try {
+            payload = await response.json();
+          } catch {
+            payload = null;
+          }
         }
+
+        if (!response.ok) {
+          const error = new Error("request_failed");
+          error.status = response.status;
+          const body = unwrap(payload);
+          error.code = firstValue(body, ["code", "error", "message"]);
+          throw error;
+        }
+        return payload;
       }
 
       function setPageMessage(message) {
@@ -178,9 +219,9 @@
           return;
         }
         target.innerHTML =
-          '<table class="admin-table"><thead><tr>' +
+          '<div class="admin-table-wrap"><table class="admin-table"><thead><tr>' +
           headers.map((header) => "<th>" + escapeHtml(header) + "</th>").join("") +
-          "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
+          "</tr></thead><tbody>" + rows.join("") + "</tbody></table></div>";
       }
 
       function cell(value) {
@@ -190,6 +231,7 @@
       function renderOverview(response) {
         const overview = unwrap(response) || {};
         state.paddleApiConfigured = overview.paddleApiConfigured === true;
+
         const metrics = [
           ["Gebruikers", ["totalUsers", "userCount", "users"]],
           ["Actieve gebruikers", ["activeUsers", "activeUserCount"]],
@@ -198,17 +240,23 @@
           ["Openstaande uitbetalingen", ["pendingPayouts", "pendingPayoutCount"]],
           ["Open supporttickets", ["openSupportTickets", "openTickets", "openTicketCount"]]
         ];
+
         const cards = [];
         for (const [label, keys] of metrics) {
           const key = keys.find((candidate) => Object.prototype.hasOwnProperty.call(overview, candidate));
           if (!key || (typeof overview[key] !== "number" && typeof overview[key] !== "string")) continue;
           const value = String(overview[key]);
           if (!/^-?\d+(?:[.,]\d+)?$/.test(value)) continue;
-          cards.push('<div class="admin-metric"><span>' + escapeHtml(label) +
-            '</span><strong>' + escapeHtml(value) + "</strong></div>");
+          cards.push(
+            '<div class="admin-metric"><span>' + escapeHtml(label) +
+            '</span><strong>' + escapeHtml(value) + "</strong></div>"
+          );
         }
-        cards.push('<div class="admin-metric"><span>Paddle API</span><strong>' +
-          (state.paddleApiConfigured ? "Ingesteld" : "Niet ingesteld") + "</strong></div>");
+
+        cards.push(
+          '<div class="admin-metric"><span>Paddle API</span><strong>' +
+          (state.paddleApiConfigured ? "Ingesteld" : "Niet ingesteld") + "</strong></div>"
+        );
         $("overviewMetrics").innerHTML = cards.join("");
       }
 
@@ -219,22 +267,30 @@
           const role = firstValue(user, ["role"]);
           const status = firstValue(user, ["status", "accountStatus"]);
           let actions = "—";
+
           if (state.role === "owner" && id) {
             const safeId = escapeHtml(id);
-            actions = '<div class="admin-actions">' +
-              '<button type="button" data-action="role" data-id="' + safeId +
-              '" data-value="user">Maak gebruiker</button>' +
-              '<button type="button" data-action="role" data-id="' + safeId +
-              '" data-value="moderator">Maak moderator</button>' +
+            const roleButtons = [];
+            if (role.toLowerCase() !== "user") {
+              roleButtons.push('<button type="button" data-action="role" data-id="' + safeId + '" data-value="user">Maak gebruiker</button>');
+            }
+            if (role.toLowerCase() !== "moderator") {
+              roleButtons.push('<button type="button" data-action="role" data-id="' + safeId + '" data-value="moderator">Maak moderator</button>');
+            }
+            const disabled = status.toLowerCase() === "disabled";
+            const nextStatus = disabled ? "active" : "disabled";
+            roleButtons.push(
               '<button type="button" data-action="user-status" data-id="' + safeId +
-              '" data-value="' + (status.toLowerCase() === "disabled" ? "active" : "disabled") +
-              '">' + (status.toLowerCase() === "disabled" ? "Activeer" : "Deactiveer") +
-              "</button></div>";
+              '" data-value="' + nextStatus + '">' + (disabled ? "Activeer" : "Deactiveer") + "</button>"
+            );
+            actions = '<div class="admin-actions">' + roleButtons.join("") + "</div>";
           }
+
           return "<tr>" +
             cell(firstValue(user, ["name", "fullName", "displayName"])) +
             cell(firstValue(user, ["email"])) +
-            cell(role) + cell(status) +
+            cell(role) +
+            cell(status) +
             cell(dateText(firstValue(user, ["createdAt", "created_at"]))) +
             "<td>" + actions + "</td></tr>";
         });
@@ -245,22 +301,28 @@
         const subscriptions = extractList(response, ["subscriptions", "items", "results"]);
         const rows = subscriptions.map((item) => {
           const id = firstValue(item, ["id", "_id", "subscriptionId"]);
+          const status = firstValue(item, ["status"]);
           let actions = "—";
-          if (state.role === "owner" && state.paddleApiConfigured && id &&
-              firstValue(item, ["status"]).toLowerCase() !== "canceled") {
-            actions = '<div class="admin-actions">' +
-              '<button type="button" data-action="cancel-subscription" data-id="' + escapeHtml(id) +
-              '" data-immediate="true">Direct annuleren</button>' +
-              '<button type="button" data-action="cancel-subscription" data-id="' + escapeHtml(id) +
-              '" data-immediate="false">Annuleren aan einde periode</button></div>';
+
+          if (state.role === "owner" && state.paddleApiConfigured && id && status.toLowerCase() !== "canceled") {
+            actions =
+              '<div class="admin-actions"><button type="button" data-action="cancel-subscription" data-id="' +
+              escapeHtml(id) + '">Direct annuleren</button></div>';
           }
+
           return "<tr>" +
             cell(firstValue(item, ["userEmail", "email", "userName"])) +
             cell(firstValue(item, ["planName", "plan", "productName"])) +
-            cell(firstValue(item, ["status"])) +
+            cell(status) +
             cell(dateText(firstValue(item, ["currentPeriodEnd", "nextBillingAt", "nextPaymentAt"]))) +
             "<td>" + actions + "</td></tr>";
         });
+
+        const note = $("subscriptionNote");
+        note.hidden = !(state.role === "owner" && !state.paddleApiConfigured);
+        if (!note.hidden) {
+          note.textContent = "Annuleren is niet beschikbaar omdat de Paddle API niet is ingesteld.";
+        }
         renderTable($("subscriptionsTable"), ["Gebruiker", "Abonnement", "Status", "Volgende facturatie", "Acties"], rows, "Geen abonnementen gevonden.");
       }
 
@@ -286,10 +348,19 @@
           const id = firstValue(ticket, ["id", "_id", "ticketId"]);
           const status = firstValue(ticket, ["status"]);
           let actions = "—";
-          if (state.role === "owner" && id && status.toLowerCase() !== "closed") {
-            actions = '<button type="button" data-action="close-ticket" data-id="' +
-              escapeHtml(id) + '">Sluiten</button>';
+
+          if (state.role === "owner" && id) {
+            const safeId = escapeHtml(id);
+            const statuses = ["Open", "Pending", "Closed"];
+            actions = '<div class="admin-actions"><select class="admin-status-select" data-action="support-status" data-id="' +
+              safeId + '" aria-label="Supportticketstatus">' +
+              statuses.map((value) =>
+                '<option value="' + value + '"' + (value.toLowerCase() === status.toLowerCase() ? " selected" : "") + ">" +
+                value + "</option>"
+              ).join("") +
+              '</select><button type="button" data-action="save-support-status" data-id="' + safeId + '">Opslaan</button></div>';
           }
+
           return "<tr>" +
             cell(firstValue(ticket, ["subject", "title"])) +
             cell(firstValue(ticket, ["userEmail", "email", "userName"])) +
@@ -321,8 +392,14 @@
       }
 
       async function loadDashboard() {
+        try {
+          renderOverview(await api("/admin/overview"));
+        } catch {
+          $("overviewMetrics").innerHTML = '<p class="admin-muted">Het dashboardoverzicht kon niet worden geladen.</p>';
+          state.paddleApiConfigured = false;
+        }
+
         const jobs = [
-          loadSection("/admin/overview", $("overviewMetrics"), renderOverview, "Het dashboardoverzicht kon niet worden geladen."),
           loadSection("/admin/users", $("usersTable"), renderUsers, "Gebruikers konden niet worden geladen."),
           loadSection("/admin/subscriptions", $("subscriptionsTable"), renderSubscriptions, "Abonnementen konden niet worden geladen."),
           loadSection("/admin/payouts", $("payoutsTable"), renderPayouts, "Uitbetalingen konden niet worden geladen."),
@@ -338,6 +415,35 @@
         return api(path, { method: "POST", body: JSON.stringify(body) });
       }
 
+      function setActionMessage(message, isError = false) {
+        const node = $("actionMessage");
+        node.classList.toggle("admin-error", isError);
+        node.textContent = message;
+      }
+
+      function showEmailProviderError() {
+        $("actionMessage").classList.add("admin-error");
+        $("actionMessage").innerHTML =
+          'E-mailprovider moet nog worden ingesteld. <a href="installeren.html">Bekijk de installatie-informatie</a>.';
+      }
+
+      $("passwordResetButton").addEventListener("click", async () => {
+        if (state.role !== "owner") return;
+        if (!window.confirm("Een wachtwoordreset versturen naar " + OWNER_EMAIL + "?")) return;
+
+        setActionMessage("Wachtwoordreset wordt verstuurd…");
+        try {
+          await post("/admin/password-reset", { email: OWNER_EMAIL });
+          setActionMessage("De aanvraag voor een wachtwoordreset is verwerkt.");
+        } catch (error) {
+          if (error.status === 503 || error.code === "email_provider_not_configured") {
+            showEmailProviderError();
+          } else {
+            setActionMessage("De wachtwoordreset kon niet worden verstuurd. Probeer het later opnieuw.", true);
+          }
+        }
+      });
+
       document.addEventListener("click", async (event) => {
         const button = event.target.closest("button[data-action]");
         if (!button || state.role !== "owner") return;
@@ -351,37 +457,41 @@
         let confirmation = "";
 
         if (action === "role") {
+          const role = button.dataset.value;
+          if (role !== "user" && role !== "moderator") return;
           path = "/admin/users/" + encodeURIComponent(id) + "/role";
-          body = { role: button.dataset.value };
+          body = { role };
           confirmation = "Weet je zeker dat je de rol van deze gebruiker wilt wijzigen?";
         } else if (action === "user-status") {
+          const status = button.dataset.value;
+          if (status !== "active" && status !== "disabled") return;
           path = "/admin/users/" + encodeURIComponent(id) + "/status";
-          body = { status: button.dataset.value };
+          body = { status };
           confirmation = "Weet je zeker dat je de status van deze gebruiker wilt wijzigen?";
-        } else if (action === "close-ticket") {
+        } else if (action === "save-support-status") {
+          const select = document.querySelector('select[data-action="support-status"][data-id="' + CSS.escape(id) + '"]');
+          const status = select && select.value;
+          if (!["Open", "Pending", "Closed"].includes(status)) return;
           path = "/admin/support/" + encodeURIComponent(id) + "/status";
-          body = { status: "Closed" };
-          confirmation = "Dit supportticket sluiten?";
+          body = { status };
+          confirmation = "De status van dit supportticket wijzigen naar " + status + "?";
         } else if (action === "cancel-subscription") {
           if (!state.paddleApiConfigured) return;
           path = "/admin/subscriptions/" + encodeURIComponent(id) + "/cancel";
-          body = { immediate: button.dataset.immediate === "true" };
-          confirmation = body.immediate
-            ? "Dit abonnement direct annuleren?"
-            : "Dit abonnement aan het einde van de periode annuleren?";
+          body = { immediate: true };
+          confirmation = "Dit abonnement direct annuleren? Het resultaat wordt definitief verwerkt via de Paddle-webhook.";
         } else {
           return;
         }
 
         if (!window.confirm(confirmation)) return;
-        const message = $("actionMessage");
-        message.textContent = "Wijziging wordt verwerkt…";
+        setActionMessage("Wijziging wordt verwerkt…");
         try {
           await post(path, body);
-          message.textContent = "Wijziging opgeslagen. Gegevens worden vernieuwd.";
+          setActionMessage("Wijziging opgeslagen. Gegevens worden vernieuwd.");
           await loadDashboard();
         } catch {
-          message.textContent = "De wijziging is niet gelukt. Probeer het later opnieuw.";
+          setActionMessage("De wijziging is niet gelukt. Probeer het later opnieuw.", true);
         }
       });
 
@@ -416,17 +526,20 @@
 
         $("adminContent").hidden = false;
         $("roleBadge").hidden = false;
+
         if (state.role === "moderator") {
           $("roleBadge").textContent = "ALLEEN LEZEN";
           $("roleBadge").setAttribute("aria-label", "Moderator: alleen-lezen toegang");
         } else {
           $("roleBadge").textContent = "Eigenaar";
           $("auditSection").hidden = false;
+          $("securitySection").hidden = false;
         }
 
         setPageMessage(state.role === "moderator"
           ? "Je bekijkt deze beheerpagina in de modus ALLEEN LEZEN."
           : "Beheeroverzicht geladen.");
+
         await loadDashboard();
       }
 
