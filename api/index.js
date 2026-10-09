@@ -26,7 +26,8 @@ const priceMap = new Map(
 const ALLOWED_ORIGINS = new Set([
   "https://saldo-slim.onrender.com",
   "https://partydj-dylan.nl",
-  "https://www.partydj-dylan.nl"
+  "https://www.partydj-dylan.nl",
+  "https://saldoslim.partydj-dylan.nl"
 ]);
 
 function send(res, status, data) {
