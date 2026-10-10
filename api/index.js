@@ -1092,6 +1092,26 @@ const server = http.createServer(async (req, res) => {
       const result=await pool.query(entry[1]);
       return send(res,200,{[entry[0]]:result.rows});
     }
+
+    const adminChange = url.pathname.match(/^\/admin\/(users|support)\/([a-f0-9-]{36})\/(role|status)$/i);
+    if (req.method === 'POST' && adminChange) {
+      const actor = await requireAdmin(req,res,true);
+      if (!actor) return;
+      if (!pool) return send(res,503,{error:'database_not_configured'});
+      const [,kind,id,field] = adminChange;
+      const body = await jsonBody(req);
+      let updated;
+      if (kind === 'users' && field === 'role' && ['user','moderator'].includes(body.role)) {
+        updated = await pool.query("update users set role=$1,updated_at=now() where id=$2 and lower(email)<>$3 and role<>'owner' returning id",[body.role,id,OWNER_EMAIL]);
+      } else if (kind === 'users' && field === 'status' && ['active','disabled'].includes(body.status)) {
+        updated = await pool.query("update users set status=$1,updated_at=now() where id=$2 and lower(email)<>$3 and role<>'owner' returning id",[body.status,id,OWNER_EMAIL]);
+      } else if (kind === 'support' && field === 'status' && ['Open','Pending','Closed'].includes(body.status)) {
+        updated = await pool.query('update support_tickets set status=$1,updated_at=now() where id=$2 returning id',[body.status,id]);
+      } else return send(res,400,{error:'invalid_action'});
+      if (!updated.rowCount) return send(res,404,{error:'not_found_or_protected'});
+      await audit(actor,'admin.'+kind+'.'+field,kind,id);
+      return send(res,200,{ok:true});
+    }
     return send(res, 404, { error: "not_found" });
   } catch (error) {
     console.error(error);
