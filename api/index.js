@@ -1071,6 +1071,27 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+
+    if (key.startsWith("GET /admin/")) {
+      const actor = await requireAdmin(req, res, key === "GET /admin/audit");
+      if (!actor) return;
+      if (!pool) return send(res,503,{error:"database_not_configured"});
+      const queries = {
+        "/admin/users": ["users", "select id,name,email,role,status,created_at,first_name,last_name,age,phone from users order by created_at desc limit 500"],
+        "/admin/subscriptions": ["subscriptions", "select s.id,s.plan,s.status,u.email as \"userEmail\" from subscriptions s join users u on u.id=s.user_id order by s.updated_at desc limit 500"],
+        "/admin/payouts": ["payouts", "select id,external_payout_id as \"payoutId\",status,amount,currency,created_at as \"createdAt\" from payouts order by created_at desc limit 500"],
+        "/admin/support": ["tickets", "select t.id,t.subject,t.status,t.created_at,u.email as \"userEmail\" from support_tickets t join users u on u.id=t.user_id order by t.created_at desc limit 500"],
+        "/admin/audit": ["audit", "select a.created_at as \"createdAt\",a.action,a.target_type as \"targetType\",a.target_id as \"targetId\",u.email as \"actorEmail\" from audit_log a left join users u on u.id=a.actor_user_id order by a.created_at desc limit 500"]
+      };
+      if (key === "GET /admin/overview") {
+        const counts = await Promise.all(["users","subscriptions","payouts","support_tickets"].map(table => pool.query("select count(*)::int as count from " + table)));
+        return send(res,200,{totalUsers:counts[0].rows[0].count,totalSubscriptions:counts[1].rows[0].count,pendingPayouts:counts[2].rows[0].count,openSupportTickets:counts[3].rows[0].count,paddleApiConfigured:false});
+      }
+      const entry=queries[url.pathname];
+      if (!entry) return send(res,404,{error:"not_found"});
+      const result=await pool.query(entry[1]);
+      return send(res,200,{[entry[0]]:result.rows});
+    }
     return send(res, 404, { error: "not_found" });
   } catch (error) {
     console.error(error);
