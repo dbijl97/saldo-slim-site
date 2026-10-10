@@ -43,6 +43,12 @@ jobs:
         working-directory: mobile
         run: npm install
 
+      - name: Generate Saldo Slim launcher icon
+        working-directory: mobile
+        run: |
+          python3 -m pip install --user Pillow
+          python3 generate_icon.py
+
       - name: Generate native Android project
         working-directory: mobile
         env:
