@@ -875,10 +875,10 @@ const server = http.createServer(async (req, res) => {
         await connection.query("select pg_advisory_xact_lock(hashtext($1),hashtext($2))",[String(current.id),feature]);
         const existing=await connection.query("select item_id from feature_items where user_id=$1 and feature=$2",[current.id,feature]);
         const stored=new Set(existing.rows.map(r=>r.item_id));
-        const additions=items.filter(id=>!stored.has(id));
-        const total=stored.size+additions.length;
+        const total=items.length;
         if(limit!==null&&total>limit){await connection.query("rollback");return send(res,403,{error:"feature_limit_reached",feature,limit,used:stored.size});}
-        for(const id of additions)await connection.query("insert into feature_items(user_id,feature,item_id) values($1,$2,$3) on conflict do nothing",[current.id,feature,id]);
+        for(const id of stored)if(!items.includes(id))await connection.query("delete from feature_items where user_id=$1 and feature=$2 and item_id=$3",[current.id,feature,id]);
+        for(const id of items)if(!stored.has(id))await connection.query("insert into feature_items(user_id,feature,item_id) values($1,$2,$3) on conflict do nothing",[current.id,feature,id]);
         await connection.query("commit");
         return send(res,200,{allowed:true,feature,used:total,limit});
       }catch(error){await connection.query("rollback");throw error}finally{connection.release()}
