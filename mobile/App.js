@@ -20,7 +20,7 @@ export default function App(){
  const enabled=k=>privileged||Boolean(ent?.features?.[k]);
  const plan=String(ent?.effectivePlan||me?.plan||'basis').toLowerCase();
  const tier=privileged?4:plan.includes('max')?3:plan.includes('pro')?2:plan.includes('plus')?1:0;
- const financeAccess={all:privileged,categories:true,autoCategories:tier>=2,split:tier>=2,budget:true,maxBudgets:privileged||tier>=3?Infinity:tier===2?10:tier===1?3:1,flexPeriods:tier>=2,bills:tier>=1,recurring:tier>=2,reports:tier>=1,trend:tier>=2,goals:true,maxGoals:privileged||tier>=3?Infinity:tier===2?5:tier===1?2:1};
+ const financeAccess={all:privileged,categories:true,autoCategories:tier>=2,split:tier>=2,budget:true,maxBudgets:privileged||tier>=3?Infinity:tier===2?10:tier===1?3:1,flexPeriods:tier>=2,bills:tier>=1,recurring:tier>=2,reports:tier>=1,trend:tier>=2,goals:true,maxGoals:privileged||tier>=3?Infinity:tier===2?5:tier===1?2:1,maxBills:privileged||tier>=3?Infinity:tier===2?20:tier===1?5:1};
  const theme=PLAN_THEMES[privileged?'max':tier===3?'max':tier===2?'pro':tier===1?'plus':'basis'];
  const alertLimit=privileged||tier>=3?Infinity:tier===2?25:tier===1?10:3;
  const upgrade=()=>Linking.openURL('https://partydj-dylan.nl/account.html').catch(fail);
