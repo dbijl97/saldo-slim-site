@@ -111,6 +111,8 @@ const api = {
   },
   getFeatureUsage() { return get('/feature-usage'); },
   consumeFeature(feature, quantity = 1) { return post('/feature-usage/consume', { feature, quantity }); },
+  syncFeatureItems(feature, items) { return post('/feature-items/sync', { feature, items }); },
+  removeFeatureItem(feature, itemId) { return post('/feature-items/remove', { feature, itemId }); },
 
   getBankData() { return get('/bank-connect/data'); },
   submitBankResult(jwt) { return post('/bank-connect/result',{jwt}); },
