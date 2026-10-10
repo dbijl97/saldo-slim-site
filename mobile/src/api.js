@@ -109,6 +109,8 @@ const api = {
   getEntitlements() {
     return get('/entitlements');
   },
+  getFeatureUsage() { return get('/feature-usage'); },
+  consumeFeature(feature, quantity = 1) { return post('/feature-usage/consume', { feature, quantity }); },
 
   getBankData() { return get('/bank-connect/data'); },
   submitBankResult(jwt) { return post('/bank-connect/result',{jwt}); },
