@@ -266,6 +266,18 @@ async function schema() {
 
     create index if not exists support_tickets_status_idx on support_tickets(status);
     create index if not exists audit_log_created_at_idx on audit_log(created_at desc);
+    create table if not exists bank_tickets(
+      id uuid primary key, user_id uuid not null references users(id) on delete cascade,
+      service text not null, created_at timestamptz not null default now(),
+      expires_at timestamptz not null, used_at timestamptz
+    );
+    create table if not exists bank_results(
+      id uuid primary key, user_id uuid not null references users(id) on delete cascade,
+      ticket_id uuid not null unique references bank_tickets(id) on delete cascade,
+      service text not null, result jsonb not null,
+      created_at timestamptz not null default now()
+    );
+    create index if not exists bank_results_user_idx on bank_results(user_id,created_at desc);
   `);
 
   await pool.query(
@@ -772,9 +784,60 @@ const server = http.createServer(async (req, res) => {
       try { keyBytes=Buffer.from(secret,'base64');if(keyBytes.length<16) throw Error('invalid secret'); }
       catch {return send(res,503,{error:'bank_provider_key_invalid'});}
       const signature=crypto.createHmac('sha256',keyBytes).update(h+'.'+p).digest('base64url');
+      await pool.query('insert into bank_tickets(id,user_id,service,expires_at) values($1,$2,$3,to_timestamp($4))',[id,current.id,service,exp]);
       return send(res,200,{ticket:h+'.'+p+'.'+signature,ticketId:id,service,expiresAt:new Date(exp*1000).toISOString()});
     }
 
+    if (key === "POST /bank-connect/result") {
+      const current=await user(req);
+      if(!current) return send(res,401,{error:"not_logged_in"});
+      if(!entitlementData(current).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
+      const body=await jsonBody(req),token=String(body.jwt||"");
+      if(token.length>400000) return send(res,413,{error:"result_too_large"});
+      const parts=token.split(".");
+      if(parts.length!==3) return send(res,400,{error:"invalid_result"});
+      let header,payload;
+      try{header=JSON.parse(Buffer.from(parts[0],"base64url"));payload=JSON.parse(Buffer.from(parts[1],"base64url"));}
+      catch{return send(res,400,{error:"invalid_result"});}
+      if(header.alg!=="HS256"||header.kid!==process.env.YAXI_KEY_ID||!process.env.YAXI_API_KEY) return send(res,400,{error:"invalid_result"});
+      const keyBytes=Buffer.from(process.env.YAXI_API_KEY,"base64");
+      const expected=crypto.createHmac("sha256",keyBytes).update(parts[0]+"."+parts[1]).digest();
+      let supplied;
+      try{supplied=Buffer.from(parts[2],"base64url");}catch{return send(res,400,{error:"invalid_result"});}
+      if(expected.length!==supplied.length||!crypto.timingSafeEqual(expected,supplied)) return send(res,400,{error:"invalid_signature"});
+      const ticketId=String(payload?.data?.ticketId||"");
+      const timestamp=Date.parse(payload?.data?.timestamp||"");
+      if(!/^[0-9a-f-]{36}$/i.test(ticketId)||!Number.isFinite(timestamp)||Math.abs(Date.now()-timestamp)>15*60*1000|| (payload.exp&&payload.exp*1000<Date.now())) return send(res,400,{error:"expired_or_invalid_result"});
+      const tx=await pool.connect();
+      try{
+        await tx.query("begin");
+        const ticket=await tx.query("select service from bank_tickets where id=$1 and user_id=$2 and used_at is null and expires_at>now() for update",[ticketId,current.id]);
+        if(!ticket.rowCount){await tx.query("rollback");return send(res,409,{error:"ticket_not_found_or_used"});}
+        const service=ticket.rows[0].service;
+        const data=payload.data.data;
+        if(service==="Accounts"&&!Array.isArray(data)) throw Error("invalid_accounts");
+        if(service==="Balances"&&!Array.isArray(data?.balances)) throw Error("invalid_balances");
+        if(service==="Transactions"&&!Array.isArray(data)) throw Error("invalid_transactions");
+        await tx.query("insert into bank_results(id,user_id,ticket_id,service,result) values($1,$2,$3,$4,$5::jsonb)",[crypto.randomUUID(),current.id,ticketId,service,JSON.stringify(data)]);
+        await tx.query("update bank_tickets set used_at=now() where id=$1",[ticketId]);
+        await tx.query("commit");
+        return send(res,200,{ok:true,service});
+      }catch(err){await tx.query("rollback");if(String(err.message).startsWith("invalid_")) return send(res,400,{error:"invalid_result_data"});throw err;}
+      finally{tx.release();}
+    }
+    if(key==="GET /bank-connect/data"){
+      const current=await user(req);
+      if(!current) return send(res,401,{error:"not_logged_in"});
+      if(!entitlementData(current).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
+      const rows=await pool.query("select service,result,created_at from bank_results where user_id=$1 order by created_at desc limit 100",[current.id]);
+      const latest={};
+      for(const row of rows.rows) if(!latest[row.service]) latest[row.service]=row.result;
+      const transactions=Array.isArray(latest.Transactions)?latest.Transactions:[];
+      const expenses=transactions.filter(t=>Number(t?.amount?.amount)<0);
+      const income=transactions.filter(t=>Number(t?.amount?.amount)>0);
+      const sum=xs=>Math.round(xs.reduce((n,t)=>n+Math.abs(Number(t.amount.amount)||0),0)*100)/100;
+      return send(res,200,{accounts:latest.Accounts||[],balances:latest.Balances?.balances||[],transactions:transactions.slice(0,100),analysis:{income:sum(income),expenses:sum(expenses),net:Math.round((sum(income)-sum(expenses))*100)/100,transactionCount:transactions.length},lastUpdated:rows.rows[0]?.created_at||null});
+    }
     if (key === "GET /entitlements") {
       const current = await user(req);
       if (!current) return send(res, 401, { error: "not_logged_in" });
