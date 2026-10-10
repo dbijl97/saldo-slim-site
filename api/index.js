@@ -441,6 +441,8 @@ function entitlementData(current) {
     longerOutlook: rank >= 3,
     protectionWarnings: rank >= 3,
     prioritySupport: rank >= 3,
+    bankConnect: rank >= 2,
+    bankAdvancedSettings: rank >= 3,
     adminFullAccess: privileged
   };
   return { effectivePlan, features };
@@ -735,6 +737,42 @@ const server = http.createServer(async (req, res) => {
           }
         )
       });
+    }
+
+
+    // Read-only YAXI integration: tickets never authorize payments.
+    if (key === "GET /bank-connect/status") {
+      const current = await user(req);
+      if (!current) return send(res,401,{error:"not_logged_in"});
+      const rights=entitlementData(current);
+      return send(res,200,{provider:"YAXI",configured:Boolean(process.env.YAXI_KEY_ID && process.env.YAXI_API_KEY),allowed:rights.features.bankConnect,advanced:rights.features.bankAdvancedSettings,services:["Accounts","Balances","Transactions"],connectionEstablished:false});
+    }
+    if (key === "POST /bank-connect/ticket") {
+      const current = await user(req);
+      if (!current) return send(res,401,{error:"not_logged_in"});
+      if (!entitlementData(current).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
+      const kid=process.env.YAXI_KEY_ID,secret=process.env.YAXI_API_KEY;
+      if (!kid||!secret) return send(res,503,{error:"bank_provider_not_configured"});
+      const body=await jsonBody(req);
+      const service=String(body.service||"");
+      if (!["Accounts","Balances","Transactions"].includes(service)) return send(res,400,{error:"read_only_services_only"});
+      let data=null;
+      if(service==="Transactions") {
+        const iban=String(body.iban||"").replace(/\s/g,"").toUpperCase();
+        const currency=String(body.currency||"EUR").toUpperCase();
+        const from=String(body.from||"");
+        if(!/^[A-Z]{2}[A-Z0-9]{13,32}$/.test(iban)||!/^[A-Z]{3}$/.test(currency)||!/^\d{4}-\d{2}-\d{2}$/.test(from)) return send(res,400,{error:"invalid_transaction_parameters"});
+        data={account:{iban,currency},range:{from}};
+      }
+      const id=crypto.randomUUID(),exp=Math.floor(Date.now()/1000)+600;
+      const b64=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
+      const h=b64({alg:'HS256',typ:'JWT',kid});
+      const p=b64({data:{service,id,data},exp});
+      let keyBytes;
+      try { keyBytes=Buffer.from(secret,'base64');if(keyBytes.length<16) throw Error('invalid secret'); }
+      catch {return send(res,503,{error:'bank_provider_key_invalid'});}
+      const signature=crypto.createHmac('sha256',keyBytes).update(h+'.'+p).digest('base64url');
+      return send(res,200,{ticket:h+'.'+p+'.'+signature,ticketId:id,service,expiresAt:new Date(exp*1000).toISOString()});
     }
 
     if (key === "GET /entitlements") {
