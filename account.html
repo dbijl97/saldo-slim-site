@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5f7ff">
+  <meta name="theme-color" content="#E8F8F3">
   <title>Account – Saldo Slim</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
@@ -283,13 +283,16 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
     }
-  </style>
+  
+/* Exact matching app tier palette: Basis #279D8B, Plus #3975D7, Pro #8659D7, Max #B77518 */
+:root{--tier-accent:#279D8B;--tier-soft:#E8F8F3;--primary:var(--tier-accent);--primary-dark:#176b5c;--wash:var(--tier-soft)}body{background:radial-gradient(ellipse at 80% -10%,var(--tier-soft),transparent 38rem),#f8fafb;transition:background .35s ease}.account-theme-banner{display:flex;align-items:center;gap:14px;border:2px solid var(--tier-accent);background:#fff;border-radius:22px;padding:17px 20px;margin-bottom:26px;box-shadow:0 12px 30px rgba(23,60,96,.07)}.theme-icon{display:grid;place-items:center;background:var(--tier-soft);border-radius:16px;width:56px;height:56px;font-size:1.8rem;flex-shrink:0}.account-theme-banner strong{font-size:1.13rem;color:var(--tier-accent)}.account-theme-banner p{margin:2px 0 0;color:#657789;font-size:.9rem}.theme-label{margin-left:auto;padding:7px 12px;background:var(--tier-soft);color:var(--tier-accent);border-radius:999px;font-weight:800;font-size:.85rem}.view-button[aria-pressed=true],.buy,.full-width:not(.secondary){background:var(--tier-accent)}.account-card,.auth-card{border-top:3px solid var(--tier-accent)}.plans-grid .plan-card:nth-child(1){border-top:4px solid #3975D7}.plans-grid .plan-card:nth-child(2){border-top:4px solid #8659D7}.plans-grid .plan-card:nth-child(3){border-top:4px solid #B77518}.plans-grid .plan-card:nth-child(1) h3{color:#3975D7}.plans-grid .plan-card:nth-child(2) h3{color:#8659D7}.plans-grid .plan-card:nth-child(3) h3{color:#B77518}@media(max-width:520px){.account-theme-banner{padding:14px;gap:10px}.theme-label{font-size:.74rem;padding:6px 8px}.theme-icon{width:44px;height:44px}}
+</style>
 <style>.free-start{display:grid;gap:5px;padding:15px;margin:12px 0 18px;border-radius:14px;background:#e8f8f3;border:1px solid #bce8d8;color:#176957}.free-start span{font-size:.9rem}.plans-grid .plan-card{transition:transform .25s ease,box-shadow .25s ease}.plans-grid .plan-card:hover{transform:translateY(-5px);box-shadow:0 18px 40px rgba(24,33,58,.12)}@media(prefers-reduced-motion:reduce){.plans-grid .plan-card{transition:none}.plans-grid .plan-card:hover{transform:none}}</style></head>
 <body>
   <header class="site-header"><div class="nav"><a class="brand" href="index.html">💚 Saldo Slim</a><button class="menu-toggle" type="button" aria-label="Menu openen" aria-expanded="false" aria-controls="site-menu">☰ <span>Menu</span></button><nav id="site-menu" class="site-menu" aria-label="Hoofdnavigatie"><a href="index.html">Home</a><a href="pricing.html">Abonnementen</a><a href="index.html#updates">Updates</a><a href="https://github.com/dbijl97/saldo-slim-site/releases/latest">Download app</a><a href="account.html">Mijn account</a><a href="terms.html">Voorwaarden</a><a href="privacy.html">Privacy</a><a href="refund.html">Terugbetalingen</a></nav></div></header>
 
   <main>
-    <section class="intro">
+    <section class="intro"><div class="account-theme-banner" id="themeBanner" aria-live="polite"><span id="themeIcon" class="theme-icon">🌱</span><div><strong id="themeTitle">Saldo Slim Basis</strong><p id="themeSubtitle">Begin slim met je geld</p></div><span class="theme-label" id="themeLabel">Basis</span></div>
       <p class="eyebrow">Jouw account</p>
       <h1>Welkom bij Saldo Slim</h1>
       <p class="muted">Log in of maak een account aan om je abonnement te beheren en Saldo Slim te gebruiken.</p>
@@ -530,6 +533,14 @@
       });
     }
 
+
+    function applyAccountTheme(plan,privileged=false){
+      const value=String(plan||"basis").toLowerCase();
+      const tier=privileged||value.includes("max")?"max":value.includes("pro")?"pro":value.includes("plus")?"plus":"basis";
+      const themes={basis:{color:"#279D8B",soft:"#E8F8F3",icon:"🌱",title:"Saldo Slim Basis",subtitle:"Begin slim met je geld"},plus:{color:"#3975D7",soft:"#EAF2FF",icon:"✨",title:"Saldo Slim Plus",subtitle:"Meer grip, meer mogelijkheden"},pro:{color:"#8659D7",soft:"#F2ECFF",icon:"🚀",title:"Saldo Slim Pro",subtitle:"Jouw financiën naar een hoger niveau"},max:{color:"#B77518",soft:"#FFF3D8",icon:"👑",title:"Saldo Slim Max",subtitle:"Alle ruimte om financieel te groeien"}};
+      const t=themes[tier];document.documentElement.style.setProperty("--tier-accent",t.color);document.documentElement.style.setProperty("--tier-soft",t.soft);document.documentElement.style.setProperty("--primary",t.color);document.documentElement.style.setProperty("--wash",t.soft);document.querySelector('meta[name="theme-color"]')?.setAttribute("content",t.soft);
+      el("themeIcon").textContent=t.icon;el("themeTitle").textContent=privileged?"Saldo Slim Premium beheerder":t.title;el("themeSubtitle").textContent=privileged?"Alle functies gratis en onbeperkt":t.subtitle;el("themeLabel").textContent=privileged?"Premium":tier[0].toUpperCase()+tier.slice(1);
+    }
     function isActivePaidPlan(user) {
       const plan = String(user.plan || "").trim().toLowerCase();
       const status = String(user.subscriptionStatus || user.subscription_status || user.status || "").trim().toLowerCase();
@@ -581,6 +592,7 @@
 
     async function refresh() {
       if (!token) {
+        applyAccountTheme("basis");
         config = null;
         el("accountSummary").textContent = "Je bent nog niet ingelogd.";
         el("accountDetails").hidden = true;
@@ -598,6 +610,7 @@
         const role = user.role || "onbekend";
         const privileged = role === "owner" || role === "moderator";
         const plan = privileged ? "Lifetime Premium (gratis)" : (user.plan || "Basis");
+        applyAccountTheme(plan,privileged);
         const status = user.subscriptionStatus || user.subscription_status || user.status || "Geen actief abonnement";
         const canAccessAdmin = role === "owner" || role === "moderator";
         const hasActivePlan = isActivePaidPlan(user);
