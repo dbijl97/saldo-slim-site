@@ -757,13 +757,14 @@ const server = http.createServer(async (req, res) => {
       const current = await user(req);
       if (!current) return send(res,401,{error:"not_logged_in"});
       const rights=entitlementData(current);
-      return send(res,200,{provider:"YAXI",configured:Boolean(process.env.YAXI_KEY_ID && process.env.YAXI_API_KEY),allowed:rights.features.bankConnect,advanced:rights.features.bankAdvancedSettings,services:["Accounts","Balances","Transactions"],connectionEstablished:false});
+      return send(res,200,{provider:"YAXI",configured:Boolean(process.env.YAXI_TEST_MODE==="true"?(process.env.YAXI_TEST_KEY_ID&&process.env.YAXI_TEST_API_KEY):(process.env.YAXI_KEY_ID&&process.env.YAXI_API_KEY)),environment:process.env.YAXI_TEST_MODE==="true"?"Integration":"Production",allowed:rights.features.bankConnect,advanced:rights.features.bankAdvancedSettings,services:["Accounts","Balances","Transactions"],connectionEstablished:false});
     }
     if (key === "POST /bank-connect/ticket") {
       const current = await user(req);
       if (!current) return send(res,401,{error:"not_logged_in"});
       if (!entitlementData(current).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
-      const kid=process.env.YAXI_KEY_ID,secret=process.env.YAXI_API_KEY;
+      const testMode=process.env.YAXI_TEST_MODE==="true";
+      const kid=testMode?process.env.YAXI_TEST_KEY_ID:process.env.YAXI_KEY_ID,secret=testMode?process.env.YAXI_TEST_API_KEY:process.env.YAXI_API_KEY;
       if (!kid||!secret) return send(res,503,{error:"bank_provider_not_configured"});
       const body=await jsonBody(req);
       const service=String(body.service||"");
@@ -799,8 +800,8 @@ const server = http.createServer(async (req, res) => {
       let header,payload;
       try{header=JSON.parse(Buffer.from(parts[0],"base64url"));payload=JSON.parse(Buffer.from(parts[1],"base64url"));}
       catch{return send(res,400,{error:"invalid_result"});}
-      if(header.alg!=="HS256"||header.kid!==process.env.YAXI_KEY_ID||!process.env.YAXI_API_KEY) return send(res,400,{error:"invalid_result"});
-      const keyBytes=Buffer.from(process.env.YAXI_API_KEY,"base64");
+      if(header.alg!=="HS256"||header.kid!==(process.env.YAXI_TEST_MODE==="true"?process.env.YAXI_TEST_KEY_ID:process.env.YAXI_KEY_ID)||!(process.env.YAXI_TEST_MODE==="true"?process.env.YAXI_TEST_API_KEY:process.env.YAXI_API_KEY)) return send(res,400,{error:"invalid_result"});
+      const keyBytes=Buffer.from(process.env.YAXI_TEST_MODE==="true"?process.env.YAXI_TEST_API_KEY:process.env.YAXI_API_KEY,"base64");
       const expected=crypto.createHmac("sha256",keyBytes).update(parts[0]+"."+parts[1]).digest();
       let supplied;
       try{supplied=Buffer.from(parts[2],"base64url");}catch{return send(res,400,{error:"invalid_result"});}
