@@ -1,0 +1,37 @@
+name: Build bank browser bundle
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bank-client-entry.js'
+      - 'package.json'
+      - 'webapp-bank.js'
+      - '.github/workflows/build-bank-client.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser bundler
+        run: npm install --no-audit --no-fund
+      - name: Build bank client
+        run: npm run build:bank
+      - name: Verify generated browser module
+        run: |
+          test -s bank-client.bundle.js
+          node --check bank-client.bundle.js
+      - name: Commit built client
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bank-client.bundle.js package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Build local browser bank client bundle"
+            git push
+          fi
