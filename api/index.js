@@ -819,8 +819,8 @@ const server = http.createServer(async (req, res) => {
       let header,payload;
       try{header=JSON.parse(Buffer.from(parts[0],"base64url"));payload=JSON.parse(Buffer.from(parts[1],"base64url"));}
       catch{return send(res,400,{error:"invalid_result"});}
-      if(header.alg!=="HS256"||header.kid!==(process.env.YAXI_TEST_MODE==="true"?process.env.YAXI_TEST_KEY_ID:process.env.YAXI_KEY_ID)||!(process.env.YAXI_TEST_MODE==="true"?process.env.YAXI_TEST_API_KEY:process.env.YAXI_API_KEY)) return send(res,400,{error:"invalid_result"});
-      const keyBytes=Buffer.from(process.env.YAXI_TEST_MODE==="true"?process.env.YAXI_TEST_API_KEY:process.env.YAXI_API_KEY,"base64");
+      if(header.alg!=="HS256"||header.kid!==process.env.YAXI_KEY_ID||!process.env.YAXI_API_KEY) return send(res,400,{error:"invalid_result"});
+      const keyBytes=Buffer.from(process.env.YAXI_API_KEY,"base64");
       const expected=crypto.createHmac("sha256",keyBytes).update(parts[0]+"."+parts[1]).digest();
       let supplied;
       try{supplied=Buffer.from(parts[2],"base64url");}catch{return send(res,400,{error:"invalid_result"});}
