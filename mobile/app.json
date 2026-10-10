@@ -17,6 +17,7 @@
       "googlePlayBillingEnabled": false,
       "googleIapEnabled": false,
       "paidPlans": "web-paddle-only"
-    }
+    },
+    "scheme": "saldoslim"
   }
 }
