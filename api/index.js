@@ -870,6 +870,7 @@ const server = http.createServer(async (req, res) => {
       const limit = ent.limits[feature];
       const period = new Date().toISOString().slice(0,7);
       if (ent.privileged || limit===null) return send(res,200,{allowed:true,unlimited:true,feature,period});
+      if (quantity>limit) return send(res,403,{error:"feature_limit_reached",feature,limit,used:0,period});
       const connection = await pool.connect();
       try {
         await connection.query("begin");
