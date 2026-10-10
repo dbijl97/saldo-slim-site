@@ -570,8 +570,8 @@ export default function App() {
   const isOwner = role === 'owner';
   const entitlementData = unwrap(entitlements);
   const features = entitlementData?.features || entitlementData?.entitlements?.features || null;
-  const planName = String(entitlementData?.plan || entitlementData?.subscription?.plan || entitlementData?.planName || 'Gratis');
-  const hasFeature = useCallback((key) => featureIsEnabled(featureValue(features, key)), [features]);
+  const planName = isAdmin ? 'Lifetime Premium (gratis)' : String(entitlementData?.effectivePlan || entitlementData?.plan || entitlementData?.subscription?.plan || entitlementData?.planName || 'Gratis');
+  const hasFeature = useCallback((key) => isAdmin || featureIsEnabled(featureValue(features, key)), [isAdmin, features]);
 
   const amounts = useMemo(() => {
     const incomeValue = parseAmount(income);
