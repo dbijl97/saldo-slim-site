@@ -28,7 +28,20 @@ export default function FinanceTools({bankData,userKey,access={},onUpgrade=()=>{
  const [billName,setBillName]=useState(''),[billAmount,setBillAmount]=useState(''),[billDay,setBillDay]=useState('1');
  const [goalName,setGoalName]=useState(''),[goalTarget,setGoalTarget]=useState(''),[goalDeposit,setGoalDeposit]=useState('');
  useEffect(()=>{let alive=true;setReady(false);SecureStore.getItemAsync(key).then(raw=>{if(alive){let saved={};try{saved=raw?JSON.parse(raw):{}}catch(_){}setData({categories:{},splits:{},budgets:[],bills:[],goals:[],period:'month',payday:'1',...saved});setReady(true)}}).catch(()=>{if(alive)setReady(true)});return()=>{alive=false}},[key]);
- const save=next=>{setData(next);SecureStore.setItemAsync(key,JSON.stringify(next)).catch(()=>setNotice('Opslaan op dit apparaat is mislukt.'))};
+ const save=async next=>{
+  const collections=[['budgets',x=>String(x.period)+'|'+String(x.category)],['goals',x=>String(x.id)],['bills',x=>String(x.id)]];
+  try{
+   for(const [field,getId] of collections){
+    const feature=field==='goals'?'savingsGoals':field==='bills'?'fixedBills':'budgets';
+    const before=new Set((data[field]||[]).map(getId));
+    const after=new Set((next[field]||[]).map(getId));
+    if([...after].some(id=>!before.has(id)))await api.syncFeatureItems(feature,[...after]);
+    for(const id of before)if(!after.has(id))await api.removeFeatureItem(feature,id);
+   }
+  }catch(e){setNotice(e?.data?.error==='feature_limit_reached'?'Je abonnementslimiet is bereikt. Upgrade voor meer.':'De server kon je wijziging niet bevestigen. Probeer het opnieuw.');return false}
+  setData(next);
+  try{await SecureStore.setItemAsync(key,JSON.stringify(next));return true}catch(e){setNotice('Opslaan op dit apparaat is mislukt.');return false}
+ };
  const consume=async(feature)=>{try{await api.consumeFeature(feature);return true}catch(e){setNotice(e?.data?.error==='feature_limit_reached'?'Je maandlimiet voor deze functie is bereikt. Upgrade je abonnement.':'De limietcontrole is niet beschikbaar. Probeer het later opnieuw.');return false}};
  const transactions=useMemo(()=>Array.isArray(bankData?.transactions)?bankData.transactions:[],[bankData]);
  const items=useMemo(()=>transactions.map((t,i)=>({t,id:String(t.id||t.transactionId||[dateOf(t),nameOf(t),amount(t),i].join('|')),value:amount(t),date:dateOf(t),name:nameOf(t)})),[transactions]);
