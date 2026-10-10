@@ -70,16 +70,16 @@ jobs:
 
       - name: Prepare APK
         run: |
-          cp mobile/android/app/build/outputs/apk/release/app-release.apk saldo-slim-v1.4.2.apk
-          sha256sum saldo-slim-v1.4.2.apk > saldo-slim-v1.4.2.sha256
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk saldo-slim-${{ inputs.release_tag }}.apk
+          sha256sum saldo-slim-${{ inputs.release_tag }}.apk > saldo-slim-${{ inputs.release_tag }}.sha256
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: saldo-slim-v1.4.2-apk
+          name: saldo-slim-${{ inputs.release_tag }}-apk
           path: |
-            saldo-slim-v1.4.2.apk
-            saldo-slim-v1.4.2.sha256
+            saldo-slim-${{ inputs.release_tag }}.apk
+            saldo-slim-${{ inputs.release_tag }}.sha256
           retention-days: 30
 
       - name: Publish GitHub release
@@ -88,7 +88,7 @@ jobs:
           TAG: ${{ inputs.release_tag }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" saldo-slim-v1.4.2.apk saldo-slim-v1.4.2.sha256 --clobber
+            gh release upload "$TAG" saldo-slim-${{ inputs.release_tag }}.apk saldo-slim-${{ inputs.release_tag }}.sha256 --clobber
           else
-            gh release create "$TAG" saldo-slim-v1.4.2.apk saldo-slim-v1.4.2.sha256               --title "Saldo Slim 1.4.2"               --notes "Android APK met onboarding, verbeterde login, stapsgewijze budgetplanning, support en geïntegreerd owner/moderator-adminpaneel. Google Play-betalingen en automatische Play Store-deploy zijn uitgeschakeld."
+            gh release create "$TAG" saldo-slim-${{ inputs.release_tag }}.apk saldo-slim-${{ inputs.release_tag }}.sha256               --title "Saldo Slim $TAG"               --notes "Android APK met onboarding, verbeterde login, stapsgewijze budgetplanning, support en geïntegreerd owner/moderator-adminpaneel. Google Play-betalingen en automatische Play Store-deploy zijn uitgeschakeld."
           fi
