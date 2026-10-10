@@ -170,6 +170,24 @@ async function schema() {
       created_at timestamptz not null default now()
     );
 
+    create table if not exists feature_usage(
+      user_id uuid not null references users(id) on delete cascade,
+      feature text not null,
+      period text not null,
+      used integer not null default 0 check(used>=0),
+      updated_at timestamptz not null default now(),
+      primary key(user_id,feature,period)
+    );
+    create table if not exists feature_usage_requests(
+      user_id uuid not null references users(id) on delete cascade,
+      request_id uuid not null,
+      feature text not null,
+      period text not null,
+      created_at timestamptz not null default now(),
+      primary key(user_id,request_id)
+    );
+    create index if not exists feature_usage_requests_created on feature_usage_requests(created_at);
+
     create table if not exists subscriptions(
       id uuid primary key,
       user_id uuid not null references users(id) on delete cascade,
@@ -832,6 +850,43 @@ const server = http.createServer(async (req, res) => {
       const sum=xs=>Math.round(xs.reduce((n,t)=>n+Math.abs(Number(t.amount.amount)||0),0)*100)/100;
       return send(res,200,{accounts:latest.Accounts||[],balances:latest.Balances?.balances||[],transactions:transactions.slice(0,100),analysis:{income:sum(income),expenses:sum(expenses),net:Math.round((sum(income)-sum(expenses))*100)/100,transactionCount:transactions.length},lastUpdated:rows.rows[0]?.created_at||null});
     }
+    if (key === "GET /feature-usage") {
+      const current = await user(req);
+      if (!current) return send(res,401,{error:"not_logged_in"});
+      const ent = entitlementData(current);
+      const period = new Date().toISOString().slice(0,7);
+      const result = await pool.query("select feature,used from feature_usage where user_id=$1 and period=$2",[current.id,period]);
+      const usage = Object.fromEntries(result.rows.map(row=>[row.feature,Number(row.used)]));
+      return send(res,200,{period,usage,limits:ent.limits,effectivePlan:ent.effectivePlan,privileged:ent.privileged});
+    }
+    if (key === "POST /feature-usage/consume") {
+      const current = await user(req);
+      if (!current) return send(res,401,{error:"not_logged_in"});
+      const body = await jsonBody(req);
+      const feature = String(body.feature||"");
+      const quantity = body.quantity === undefined ? 1 : body.quantity;
+      if (!Object.prototype.hasOwnProperty.call(FEATURE_LIMITS.Basis,feature) || feature==="reportHistoryMonths" || !Number.isSafeInteger(quantity) || quantity<1 || quantity>1000) return send(res,400,{error:"invalid_feature_or_quantity"});
+      const ent = entitlementData(current);
+      const limit = ent.limits[feature];
+      const period = new Date().toISOString().slice(0,7);
+      if (ent.privileged || limit===null) return send(res,200,{allowed:true,unlimited:true,feature,period});
+      const connection = await pool.connect();
+      try {
+        await connection.query("begin");
+        const requestId = String(body.requestId||"");
+        if (requestId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) { await connection.query("rollback");return send(res,400,{error:"invalid_request_id"}); }
+        if (requestId) {
+          const inserted = await connection.query("insert into feature_usage_requests(user_id,request_id,feature,period) values($1,$2,$3,$4) on conflict do nothing returning request_id",[current.id,requestId,feature,period]);
+          if (!inserted.rowCount) { await connection.query("rollback");return send(res,200,{allowed:true,duplicate:true,feature,period}); }
+        }
+        const updated = await connection.query(`insert into feature_usage(user_id,feature,period,used) values($1,$2,$3,$4) on conflict(user_id,feature,period) do update set used=feature_usage.used+excluded.used,updated_at=now() where feature_usage.used+excluded.used <= $5 returning used`,[current.id,feature,period,quantity,limit]);
+        if (!updated.rowCount && quantity>limit) { await connection.query("rollback");return send(res,403,{error:"feature_limit_reached",feature,limit,period}); }
+        if (!updated.rowCount) { await connection.query("rollback");const existing=await pool.query("select used from feature_usage where user_id=$1 and feature=$2 and period=$3",[current.id,feature,period]);return send(res,403,{error:"feature_limit_reached",feature,limit,used:Number(existing.rows[0]?.used||0),period}); }
+        await connection.query("commit");
+        return send(res,200,{allowed:true,feature,limit,used:Number(updated.rows[0].used),remaining:Math.max(0,limit-Number(updated.rows[0].used)),period});
+      } catch(error) { await connection.query("rollback");throw error; } finally {connection.release();}
+    }
+
     if (key === "GET /entitlements") {
       const current = await user(req);
       if (!current) return send(res, 401, { error: "not_logged_in" });
@@ -1178,7 +1233,7 @@ const server = http.createServer(async (req, res) => {
         "/admin/support": ["tickets", "select t.id,t.subject,t.status,t.created_at,u.email as \"userEmail\" from support_tickets t join users u on u.id=t.user_id order by t.created_at desc limit 500"],
         "/admin/audit": ["audit", "select a.created_at as \"createdAt\",a.action,a.target_type as \"targetType\",a.target_id as \"targetId\",u.email as \"actorEmail\" from audit_log a left join users u on u.id=a.actor_user_id order by a.created_at desc limit 500"]
       };
-      if (key === "GET /admin/feature-limits") return send(res,200,{limits:FEATURE_LIMITS,policy:"reference",enforcement:"not_yet_server_enforced",bankConnect:"separately_controlled"});
+      if (key === "GET /admin/feature-limits") return send(res,200,{limits:FEATURE_LIMITS,policy:"reference",enforcement:"consume_endpoint_available_client_integration_required",bankConnect:"separately_controlled"});
       if (key === "GET /admin/overview") {
         const counts = await Promise.all(["users","subscriptions","payouts","support_tickets"].map(table => pool.query("select count(*)::int as count from " + table)));
         return send(res,200,{totalUsers:counts[0].rows[0].count,totalSubscriptions:counts[1].rows[0].count,pendingPayouts:counts[2].rows[0].count,openSupportTickets:counts[3].rows[0].count,paddleApiConfigured:false});
