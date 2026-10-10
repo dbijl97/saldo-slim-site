@@ -27,32 +27,39 @@ export default function App(){
  async function startBankConnection(){setBusy(true);setNotice('');try{const issued=await api.createBankTicket({service:'Accounts'});
 setBankTicket(issued);const client=new RoutexClient(bankStatus?.environment==="Integration"?{url:new URL("https://integration.yaxi.tech/")}:undefined);const credentials={connectionId:bankSelected.id};const response=await client.accounts({ticket:issued.ticket,credentials,fields:[AccountField.Iban,AccountField.Currency,AccountField.OwnerName]});setBankPassword('');await handleBankResponse(response,issued.ticket,client);}catch(e){setBankPassword('');fail(e)}finally{setBusy(false)}}
 async function handleBankResponse(response,ticket,client){
-  if(response?.authenticated?.jwt||response?.jwt){
-    await api.submitBankResult(response.authenticated?.jwt||response.jwt);
+  const result=response?.result||response;
+  const jwt=result?.authenticated?.jwt||result?.jwt;
+  if(jwt){
+    await api.submitBankResult(jwt);
     setBankDialog(null);
     setNotice('Bankrekeningen veilig gekoppeld.');
     await loadBankStatus();
     return;
   }
-  const redirectUrl=response?.url||response?.redirect?.url;
+  const redirect=response?.redirect;
+  const redirectHandle=response?.redirectHandle;
+  let redirectUrl=redirect?.url||response?.url;
+  const context=redirect?.context||redirectHandle?.context||response?.context;
+  if(!redirectUrl&&redirectHandle?.handle){
+    const registered=await client.registerRedirectUri({ticket,handle:redirectHandle.handle,redirectUri:'saldoslim://bank-callback'});
+    redirectUrl=typeof registered==='string'?registered:registered?.url;
+  }
   if(redirectUrl){
-    if(!/^https:\/\//i.test(redirectUrl)){
-      throw new Error('Ongeldige bankredirect-URL.');
-    }
-    setBankDialog({response,ticket,kind:'redirect'});
+    if(!/^https:\/\//i.test(redirectUrl))throw new Error('Ongeldige bankredirect-URL.');
+    setBankDialog({response:{...response,context},ticket,kind:'redirect'});
     await Linking.openURL(redirectUrl);
-    setNotice('Rond de bankautorisatie af en keer terug.');
+    setNotice('Rond de bankautorisatie af en keer terug. Druk daarna op Bankbevestiging controleren.');
     return;
   }
-  if(response?.input){
-    setBankDialog({response,ticket,kind:'dialog'});
+  const input=response?.dialog?.input||response?.input;
+  if(input){
+    setBankDialog({response:{...response,input},ticket,kind:'dialog'});
     setNotice('Je bank vraagt om een extra bevestiging.');
     return;
   }
-  setNotice('YAXI gaf geen bruikbare redirect of bevestiging terug. Controleer de API-respons.');
+  setNotice('YAXI-antwoord niet herkend; er zijn geen bankgegevens gekoppeld.');
 }
- 
- async function confirmBankDialog(){if(!bankDialog)return;setBusy(true);try{const client=new RoutexClient(bankStatus?.environment==="Integration"?{url:new URL("https://integration.yaxi.tech/")}:undefined);const context=bankDialog.response?.input?.context||bankDialog.response?.context;const response=await client.confirmAccounts({ticket:bankDialog.ticket,context});await handleBankResponse(response,bankDialog.ticket,client);}catch(e){fail(e)}finally{setBusy(false)}}
+ async function confirmBankDialog(){if(!bankDialog)return;setBusy(true);try{const client=new RoutexClient(bankStatus?.environment==="Integration"?{url:new URL("https://integration.yaxi.tech/")}:undefined);const context=bankDialog.response?.input?.context||bankDialog.response?.context;if(!context)throw Error('Bevestigingscontext ontbreekt.');const response=await client.confirmAccounts({ticket:bankDialog.ticket,context});await handleBankResponse(response,bankDialog.ticket,client);}catch(e){fail(e)}finally{setBusy(false)}}
  async function logout(){await SecureStore.deleteItemAsync('saldoSlimToken');api.setToken(null);setToken('');setMe(null);setStage('auth');setTab('overzicht')}
  async function saveBudget(){setBusy(true);setNotice('');try{await api.updateBudgetProfile({income:n(budget.income),fixed_expenses:n(budget.fixed_expenses),reservations:n(budget.reservations),days_remaining:Math.max(1,n(budget.days_remaining))});setNotice('Je financiële profiel is opgeslagen.')}catch(e){fail(e)}finally{setBusy(false)}}
  async function loadAdmin(){setBusy(true);setNotice('');try{const [overview,users,subscriptions,payouts,support,audit]=await Promise.all([api.getAdminOverview(),api.getAdminUsers(),api.getAdminSubscriptions(),api.getAdminPayouts(),api.getAdminSupport(),owner?api.getAdminAudit():Promise.resolve({audit:[]})]);setAdmin({overview,users:users.users||[],subscriptions:subscriptions.subscriptions||[],payouts:payouts.payouts||[],support:support.tickets||[],audit:audit.audit||[]})}catch(e){fail(e)}finally{setBusy(false)}}
