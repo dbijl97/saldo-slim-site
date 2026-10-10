@@ -845,6 +845,19 @@ const server = http.createServer(async (req, res) => {
       }catch(err){await tx.query("rollback");if(String(err.message).startsWith("invalid_")) return send(res,400,{error:"invalid_result_data"});throw err;}
       finally{tx.release();}
     }
+    if(key==="DELETE /bank-connect/data"){
+      const current=await user(req);
+      if(!current)return send(res,401,{error:"not_logged_in"});
+      if(current.role!=="owner")return send(res,403,{error:"owner_only"});
+      const client=await pool.connect();
+      try{
+        await client.query("begin");
+        const results=await client.query("delete from bank_results where user_id=$1",[current.id]);
+        const tickets=await client.query("delete from bank_tickets where user_id=$1",[current.id]);
+        await client.query("commit");
+        return send(res,200,{ok:true,deletedResults:results.rowCount,deletedTickets:tickets.rowCount});
+      }catch(e){await client.query("rollback");throw e;}finally{client.release();}
+    }
     if(key==="GET /bank-connect/data"){
       const current=await user(req);
       if(!current) return send(res,401,{error:"not_logged_in"});
