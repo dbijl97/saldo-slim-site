@@ -403,6 +403,7 @@
       }
 
       async function loadDashboard() {
+        try { const limits = await api("/admin/feature-limits"); const data = unwrap(limits); if (data && data.limits) { const rows = document.querySelectorAll(".feature-table tbody tr"); const names = ["budgetAlerts","budgets","savingsGoals","transactionSplits","autoCategories","fixedBills","recurringSubscriptions","reportHistoryMonths","whatIfSimulations"]; rows.forEach((row,i) => { if (!names[i]) return; ["Basis","Plus","Pro","Max"].forEach((plan,j) => { const value=data.limits[plan]?.[names[i]]; if (row.cells[j+1]) row.cells[j+1].textContent=value===null?"Onbeperkt":String(value??"—"); }); }); } } catch { setActionMessage("De actuele functielimieten konden niet worden opgehaald.",true); }
         try {
           renderOverview(await api("/admin/overview"));
         } catch {
