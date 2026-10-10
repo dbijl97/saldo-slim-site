@@ -170,6 +170,15 @@ async function schema() {
       created_at timestamptz not null default now()
     );
 
+    create table if not exists feature_items(
+      user_id uuid not null references users(id) on delete cascade,
+      feature text not null,
+      item_id text not null,
+      created_at timestamptz not null default now(),
+      primary key(user_id,feature,item_id)
+    );
+    create index if not exists feature_items_lookup on feature_items(user_id,feature);
+
     create table if not exists feature_usage(
       user_id uuid not null references users(id) on delete cascade,
       feature text not null,
@@ -850,6 +859,39 @@ const server = http.createServer(async (req, res) => {
       const sum=xs=>Math.round(xs.reduce((n,t)=>n+Math.abs(Number(t.amount.amount)||0),0)*100)/100;
       return send(res,200,{accounts:latest.Accounts||[],balances:latest.Balances?.balances||[],transactions:transactions.slice(0,100),analysis:{income:sum(income),expenses:sum(expenses),net:Math.round((sum(income)-sum(expenses))*100)/100,transactionCount:transactions.length},lastUpdated:rows.rows[0]?.created_at||null});
     }
+    if (key === "POST /feature-items/sync") {
+      const current=await user(req);
+      if(!current)return send(res,401,{error:"not_logged_in"});
+      const body=await jsonBody(req);
+      const feature=String(body.feature||"");
+      const allowed={budgets:"budgets",savingsGoals:"savingsGoals",fixedBills:"fixedBills"};
+      if(!Object.prototype.hasOwnProperty.call(allowed,feature)||!Array.isArray(body.items)||body.items.length>1000)return send(res,400,{error:"invalid_items"});
+      const items=body.items;
+      if(items.some(x=>typeof x!=="string"||!x||x.length>150)||new Set(items).size!==items.length)return send(res,400,{error:"invalid_items"});
+      const ent=entitlementData(current),limit=ent.limits[feature];
+      const connection=await pool.connect();
+      try{
+        await connection.query("begin");
+        await connection.query("select pg_advisory_xact_lock(hashtext($1),hashtext($2))",[String(current.id),feature]);
+        const existing=await connection.query("select item_id from feature_items where user_id=$1 and feature=$2",[current.id,feature]);
+        const stored=new Set(existing.rows.map(r=>r.item_id));
+        const additions=items.filter(id=>!stored.has(id));
+        const total=stored.size+additions.length;
+        if(limit!==null&&total>limit){await connection.query("rollback");return send(res,403,{error:"feature_limit_reached",feature,limit,used:stored.size});}
+        for(const id of additions)await connection.query("insert into feature_items(user_id,feature,item_id) values($1,$2,$3) on conflict do nothing",[current.id,feature,id]);
+        await connection.query("commit");
+        return send(res,200,{allowed:true,feature,used:total,limit});
+      }catch(error){await connection.query("rollback");throw error}finally{connection.release()}
+    }
+    if (key === "POST /feature-items/remove") {
+      const current=await user(req);
+      if(!current)return send(res,401,{error:"not_logged_in"});
+      const body=await jsonBody(req),feature=String(body.feature||""),itemId=String(body.itemId||"");
+      if(!["budgets","savingsGoals","fixedBills"].includes(feature)||!itemId||itemId.length>150)return send(res,400,{error:"invalid_items"});
+      await pool.query("delete from feature_items where user_id=$1 and feature=$2 and item_id=$3",[current.id,feature,itemId]);
+      return send(res,200,{ok:true});
+    }
+
     if (key === "GET /feature-usage") {
       const current = await user(req);
       if (!current) return send(res,401,{error:"not_logged_in"});
