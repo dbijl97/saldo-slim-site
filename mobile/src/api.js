@@ -110,6 +110,8 @@ const api = {
     return get('/entitlements');
   },
 
+  getBankData() { return get('/bank-connect/data'); },
+  submitBankResult(jwt) { return post('/bank-connect/result',{jwt}); },
   getBankConnectStatus() { return get('/bank-connect/status'); },
   createBankTicket(payload) { return post('/bank-connect/ticket', payload); },
   getBudgetProfile() {
