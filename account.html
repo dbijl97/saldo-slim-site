@@ -607,8 +607,8 @@
       try {
         const me = await api("/me");
         const user = me.user || {};
-        const role = user.role || "onbekend";
-        const privileged = role === "owner" || role === "moderator";
+        const role = String(user.role || me.role || "onbekend").toLowerCase();
+        const privileged = role === "owner" || role === "moderator" || role === "admin";
         const plan = privileged ? "Lifetime Premium (gratis)" : (user.plan || "Basis");
         applyAccountTheme(plan,privileged);
         const status = user.subscriptionStatus || user.subscription_status || user.status || "Geen actief abonnement";
