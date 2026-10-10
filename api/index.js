@@ -431,33 +431,26 @@ function budgetProfile(row) {
   };
 }
 
+const FEATURE_LIMITS = Object.freeze({
+  Basis:{budgetAlerts:3,budgets:1,savingsGoals:1,transactionSplits:1,autoCategories:5,fixedBills:1,recurringSubscriptions:1,reportHistoryMonths:2,whatIfSimulations:3},
+  Plus:{budgetAlerts:10,budgets:3,savingsGoals:2,transactionSplits:5,autoCategories:50,fixedBills:5,recurringSubscriptions:5,reportHistoryMonths:3,whatIfSimulations:15},
+  Pro:{budgetAlerts:25,budgets:10,savingsGoals:5,transactionSplits:25,autoCategories:250,fixedBills:20,recurringSubscriptions:20,reportHistoryMonths:12,whatIfSimulations:50},
+  Max:{budgetAlerts:null,budgets:null,savingsGoals:null,transactionSplits:null,autoCategories:null,fixedBills:null,recurringSubscriptions:null,reportHistoryMonths:null,whatIfSimulations:null}
+});
 function entitlementData(current) {
-  const privileged = ["owner", "moderator"].includes(current.role);
-  const rankByPlan = { Basis: 0, Basic: 0, Plus: 1, Pro: 2, Max: 3 };
-  const effectivePlan = privileged ? "Max" : (current.plan || "Basis");
-  const rank = privileged ? 3 : (rankByPlan[effectivePlan] ?? 0);
+  const privileged = ["owner", "moderator"].includes(String(current.role||"").toLowerCase());
+  const requested = String(current.plan || "Basis").toLowerCase();
+  const plan = requested === "plus" ? "Plus" : requested === "pro" ? "Pro" : requested === "max" ? "Max" : "Basis";
+  const effectivePlan = privileged ? "Max" : plan;
+  const rank = {Basis:0,Plus:1,Pro:2,Max:3}[effectivePlan];
   const features = {
-    safeDaily: rank >= 0,
-    planning: rank >= 1,
-    fixedExpenseEditing: rank >= 1,
-    smartWarnings: rank >= 1,
-    scenarios3: rank >= 1,
-    unlimitedCalculations: rank >= 2,
-    smartNotifications25: rank >= 2,
-    savingsGoals: rank >= 2,
-    analyses: rank >= 2,
-    forecasts: rank >= 2,
-    export: rank >= 2,
-    unlimitedSmartNotifications: rank >= 3,
-    advancedScenarios: rank >= 3,
-    longerOutlook: rank >= 3,
-    protectionWarnings: rank >= 3,
-    prioritySupport: rank >= 3,
-    bankConnect: rank >= 2,
-    bankAdvancedSettings: rank >= 3,
-    adminFullAccess: privileged
+    safeDaily:true,planning:true,fixedExpenseEditing:true,smartWarnings:true,scenarios3:true,
+    unlimitedCalculations:rank>=3,smartNotifications25:rank>=2,savingsGoals:true,analyses:true,
+    forecasts:true,export:rank>=2,unlimitedSmartNotifications:rank>=3,advancedScenarios:true,
+    longerOutlook:rank>=2,protectionWarnings:true,prioritySupport:rank>=3,
+    bankConnect:rank>=2,bankAdvancedSettings:rank>=3,adminFullAccess:privileged
   };
-  return { effectivePlan, features };
+  return {effectivePlan,privileged,features,limits:FEATURE_LIMITS[effectivePlan]};
 }
 
 async function updateSubscriptionUserPlan(connection, userId, plan, status) {
@@ -1179,12 +1172,13 @@ const server = http.createServer(async (req, res) => {
       if (!actor) return;
       if (!pool) return send(res,503,{error:"database_not_configured"});
       const queries = {
-        "/admin/users": ["users", "select id,name,email,role,status,created_at,first_name,last_name,age,phone from users order by created_at desc limit 500"],
+        "/admin/users": ["users", "select id,name,email,role,status,plan,created_at,first_name as \"firstName\",last_name as \"lastName\",age,phone from users order by created_at desc limit 500"],
         "/admin/subscriptions": ["subscriptions", "select s.id,s.plan,s.status,u.email as \"userEmail\" from subscriptions s join users u on u.id=s.user_id order by s.updated_at desc limit 500"],
         "/admin/payouts": ["payouts", "select id,external_payout_id as \"payoutId\",status,amount,currency,created_at as \"createdAt\" from payouts order by created_at desc limit 500"],
         "/admin/support": ["tickets", "select t.id,t.subject,t.status,t.created_at,u.email as \"userEmail\" from support_tickets t join users u on u.id=t.user_id order by t.created_at desc limit 500"],
         "/admin/audit": ["audit", "select a.created_at as \"createdAt\",a.action,a.target_type as \"targetType\",a.target_id as \"targetId\",u.email as \"actorEmail\" from audit_log a left join users u on u.id=a.actor_user_id order by a.created_at desc limit 500"]
       };
+      if (key === "GET /admin/feature-limits") return send(res,200,{limits:FEATURE_LIMITS,policy:"reference",enforcement:"not_yet_server_enforced",bankConnect:"separately_controlled"});
       if (key === "GET /admin/overview") {
         const counts = await Promise.all(["users","subscriptions","payouts","support_tickets"].map(table => pool.query("select count(*)::int as count from " + table)));
         return send(res,200,{totalUsers:counts[0].rows[0].count,totalSubscriptions:counts[1].rows[0].count,pendingPayouts:counts[2].rows[0].count,openSupportTickets:counts[3].rows[0].count,paddleApiConfigured:false});
