@@ -510,7 +510,8 @@
 
         let me;
         try {
-          me = unwrap(await api("/me"));
+          const profileResponse = unwrap(await api("/me"));
+          me = profileResponse && profileResponse.user ? profileResponse.user : profileResponse;
         } catch {
           setPageMessage("Je sessie kon niet worden gecontroleerd. Log opnieuw in via Account.");
           $("loginPrompt").hidden = false;
