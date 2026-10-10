@@ -2,13 +2,13 @@
   "expo": {
     "name": "Saldo Slim",
     "slug": "saldo-slim",
-    "version": "1.4.0",
+    "version": "1.4.2",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "android": {
       "package": "nl.saldoslim.app",
-      "versionCode": 14
+      "versionCode": 16
     },
     "plugins": [
       "expo-secure-store"
