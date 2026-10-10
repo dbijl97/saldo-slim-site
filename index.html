@@ -8,19 +8,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header>
-    <div class="nav">
-      <a class="brand" href="index.html">Saldo Slim</a>
-      <nav aria-label="Hoofdnavigatie">
-        <a href="pricing.html">Prijzen</a>
-        <a href="account.html">Account</a>
-        <a href="admin.html">Admin</a>
-        <a href="terms.html">Voorwaarden</a>
-        <a href="privacy.html">Privacy</a>
-        <a href="refund.html">Terugbetalingen</a>
-      </nav>
-    </div>
-  </header>
+  <header class="site-header"><div class="nav"><a class="brand" href="index.html">💚 Saldo Slim</a><button class="menu-toggle" type="button" aria-label="Menu openen" aria-expanded="false" aria-controls="site-menu">☰ <span>Menu</span></button><nav id="site-menu" class="site-menu" aria-label="Hoofdnavigatie"><a href="index.html">Home</a><a href="pricing.html">Abonnementen</a><a href="index.html#updates">Updates</a><a href="https://github.com/dbijl97/saldo-slim-site/releases/latest">Download app</a><a href="account.html">Mijn account</a><a href="terms.html">Voorwaarden</a><a href="privacy.html">Privacy</a><a href="refund.html">Terugbetalingen</a></nav></div></header>
 
   <main>
     <section class="hero">
@@ -32,7 +20,7 @@
       <a class="cta" href="account.html">Ga naar je account</a>
     </section>
 
-    <section class="updates" aria-label="Ontwikkelupdates"><span class="badge">Saldo Slim groeit</span><h2>Nieuw: meer inzicht, meer mogelijkheden</h2><p>We werken aan een vernieuwde Android-app met een vrolijker ontwerp, een eigen kleurthema per abonnement, transactiecategorieën, budgetlimieten, vaste lasten, rapportages en digitale spaarpotjes.</p><p>De volgende release wordt getest. Nieuwe functies en gebruikslimieten worden gefaseerd beschikbaar; sommige onderdelen zijn nog in ontwikkeling.</p><a href="pricing.html">Bekijk de functies per abonnement →</a> · <a href="https://github.com/dbijl97/saldo-slim-site/releases/latest">Bekijk de nieuwste APK-release</a></section>
+    <section id="updates" class="updates" aria-label="Ontwikkelupdates"><span class="badge">Saldo Slim groeit</span><h2>Nieuw: meer inzicht, meer mogelijkheden</h2><p>We werken aan een vernieuwde Android-app met een vrolijker ontwerp, een eigen kleurthema per abonnement, transactiecategorieën, budgetlimieten, vaste lasten, rapportages en digitale spaarpotjes.</p><p>De volgende release wordt getest. Nieuwe functies en gebruikslimieten worden gefaseerd beschikbaar; sommige onderdelen zijn nog in ontwikkeling.</p><a href="pricing.html">Bekijk de functies per abonnement →</a> · <a href="https://github.com/dbijl97/saldo-slim-site/releases/latest">Bekijk de nieuwste APK-release</a></section>
 
     <section class="grid" aria-label="Mogelijkheden van Saldo Slim">
       <div class="card">
@@ -98,5 +86,5 @@
       <p class="muted">Vragen? Mail <a href="mailto:info@partydj-dylan.nl">info@partydj-dylan.nl</a>.</p>
     </div>
   </footer>
-</body>
+<script>document.querySelector(".menu-toggle")?.addEventListener("click",function(){const open=this.getAttribute("aria-expanded")!=="true";this.setAttribute("aria-expanded",String(open));document.querySelector("#site-menu")?.classList.toggle("open",open)});</script></body>
 </html>
