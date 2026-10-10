@@ -1,5 +1,5 @@
 let RoutexClient,AccountField;
-try{({RoutexClient,AccountField}=await import("https://esm.sh/routex-client@0.6.0?bundle&external=none&target=es2022"));if(typeof RoutexClient!=="function")throw Error("YAXI-client ontbreekt");}catch(e){const n=document.getElementById("bankBrowserStatus");if(n)n.textContent="YAXI-bankmodule kan niet worden geladen: "+e.message;throw e;}
+try{({RoutexClient,AccountField}=await import("https://esm.sh/routex-client@0.6.0?bundle&external=none&target=es2022&pin=v135"));if(typeof RoutexClient!=="function")throw Error("YAXI-client ontbreekt");}catch(e){const n=document.getElementById("bankBrowserStatus");if(n)n.textContent="YAXI-bankmodule kan niet worden geladen: "+e.message;throw e;}
 const el=id=>document.getElementById(id);let client=new RoutexClient(),selected=null,pending=null,busy=false;try{pending=JSON.parse(sessionStorage.getItem("saldoBankPending")||"null");}catch{}
 const status=t=>{el("bankBrowserStatus").textContent=t;};
 async function apiCall(path,body){return request(path,{method:"POST",body:JSON.stringify(body)});}
