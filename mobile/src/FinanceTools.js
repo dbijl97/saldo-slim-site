@@ -35,8 +35,7 @@ export default function FinanceTools({bankData,userKey,access={},onUpgrade=()=>{
     const feature=field==='goals'?'savingsGoals':field==='bills'?'fixedBills':'budgets';
     const before=new Set((data[field]||[]).map(getId));
     const after=new Set((next[field]||[]).map(getId));
-    if([...after].some(id=>!before.has(id)))await api.syncFeatureItems(feature,[...after]);
-    for(const id of before)if(!after.has(id))await api.removeFeatureItem(feature,id);
+    if(after.size!==before.size||[...after].some(id=>!before.has(id)))await api.syncFeatureItems(feature,[...after]);
    }
   }catch(e){setNotice(e?.data?.error==='feature_limit_reached'?'Je abonnementslimiet is bereikt. Upgrade voor meer.':'De server kon je wijziging niet bevestigen. Probeer het opnieuw.');return false}
   setData(next);
