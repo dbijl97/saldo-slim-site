@@ -605,7 +605,8 @@
         const me = await api("/me");
         const user = me.user || {};
         const role = user.role || "onbekend";
-        const plan = user.plan || "Basis";
+        const privileged = role === "owner" || role === "moderator";
+        const plan = privileged ? "Lifetime Premium (gratis)" : (user.plan || "Basis");
         const status = user.subscriptionStatus || user.subscription_status || user.status || "Geen actief abonnement";
         const canAccessAdmin = role === "owner" || role === "moderator";
         const hasActivePlan = isActivePaidPlan(user);
@@ -614,22 +615,25 @@
           ? "Ingelogd als " + user.email
           : "Je bent ingelogd.";
         el("accountPlan").textContent = plan;
-        el("accountStatus").textContent = status;
+        el("accountStatus").textContent = privileged ? "active · alle functies vrijgeschakeld" : status;
         el("accountRole").textContent = role;
         el("accountDetails").hidden = false;
         renderProfile(user);
-        el("plansSection").hidden = false;
+        el("plansSection").hidden = privileged;
         el("logout").hidden = false;
         setAdminVisibility(canAccessAdmin);
 
-        if (hasActivePlan) {
+        if (privileged) {
+          setPlanButtonsDisabled(true);
+          showMessage("Je hebt als " + role + " gratis en onbeperkt toegang tot alle functies. Betalen is niet nodig.", "success");
+        } else if (hasActivePlan) {
           setPlanButtonsDisabled(true);
           showMessage("Je hebt al een actief " + plan + "-abonnement. Neem contact op via info@partydj-dylan.nl als je hulp nodig hebt.", "success");
         } else {
           setPlanButtonsDisabled(false);
         }
 
-        try {
+        if (!privileged) try {
           await loadPaddleConfig();
           if (!hasActivePlan && !el("msg").textContent) {
             showMessage("", "");
