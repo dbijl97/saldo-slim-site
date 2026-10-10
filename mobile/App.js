@@ -6,7 +6,7 @@ import api from './src/api';
 import FinanceTools from './src/FinanceTools';
 import {RoutexClient,AccountField,Result,Dialog,Redirect,RedirectHandle} from 'react-native-routex-client';
 const EUROPEAN_IBAN_LENGTHS={AL:28,AD:24,AT:20,AZ:28,BE:16,BG:22,BA:20,HR:21,CY:28,CZ:24,DK:18,EE:20,FI:18,FR:27,GE:22,DE:22,GI:23,GR:27,HU:28,IS:26,IE:22,IT:27,LV:21,LI:21,LT:20,LU:20,MT:31,MC:27,MD:24,ME:22,NL:18,MK:19,NO:15,PL:28,PT:25,RO:24,SM:27,RS:22,SK:24,SI:19,ES:24,SE:24,CH:21,TR:26,UA:29,GB:22,VA:22};
-function normalizeEuropeanIban(value){const iban=String(value||'').replace(/\\s|[-]/g,'').toUpperCase();if(!/^[A-Z]{2}\\d{2}[A-Z0-9]+$/.test(iban))return null;const length=EUROPEAN_IBAN_LENGTHS[iban.slice(0,2)];if(!length||iban.length!==length)return null;const rotated=iban.slice(4)+iban.slice(0,4);let remainder=0;for(const c of rotated){const part=/[A-Z]/.test(c)?String(c.charCodeAt(0)-55):c;for(const digit of part)remainder=(remainder*10+Number(digit))%97;}return remainder===1?iban:null;}
+function normalizeEuropeanIban(value){const iban=String(value||'').replace(/\s|[-]/g,'').toUpperCase();if(!/^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(iban))return null;const length=EUROPEAN_IBAN_LENGTHS[iban.slice(0,2)];if(!length||iban.length!==length)return null;const rotated=iban.slice(4)+iban.slice(0,4);let remainder=0;for(const c of rotated){const part=/[A-Z]/.test(c)?String(c.charCodeAt(0)-55):c;for(const digit of part)remainder=(remainder*10+Number(digit))%97;}return remainder===1?iban:null;}
 const BLUE='#173c60',GREEN='#2d805f';
 const PLAN_THEMES={basis:{name:'Basis',accent:'#279D8B',soft:'#E8F8F3',emoji:'🌱',subtitle:'Begin slim met je geld'},plus:{name:'Plus',accent:'#3975D7',soft:'#EAF2FF',emoji:'✨',subtitle:'Meer grip, meer mogelijkheden'},pro:{name:'Pro',accent:'#8659D7',soft:'#F2ECFF',emoji:'🚀',subtitle:'Jouw financiën naar een hoger niveau'},max:{name:'Max',accent:'#B77518',soft:'#FFF3D8',emoji:'👑',subtitle:'Alle ruimte om financieel te groeien'}};
 const intro=[['👋 Welkom bij Saldo Slim','Krijg grip op je inkomsten, uitgaven en financiële toekomst.'],['💶 Jouw geld in beeld','Bekijk je saldo, recente transacties en dagelijkse bestedingsruimte.'],['🎯 Budgetten instellen','Kies een budget per categorie en volg je uitgaven met duidelijke voortgang.'],['🐷 Sparen voor je doelen','Maak spaarpotjes en zie hoeveel je al opzij hebt gezet.'],['🔁 Vaste lasten herkennen','Bekijk terugkerende betalingen en houd overzicht over je maandelijkse kosten.'],['📊 Slimme inzichten','Categoriseer transacties, splits uitgaven en bekijk rapportages.'],['👑 Kies jouw abonnement','Begin gratis met Basis of ontdek Plus, Pro en Max. Owner en moderators krijgen volledige toegang.']];
@@ -55,11 +55,11 @@ export default function App(){
      if(!query)throw new Error('Vul een banknaam of IBAN in.');
      const issued=await api.createBankTicket({service:'Accounts'});
      const client=makeBankClient();
-     const compact=query.replace(/[\\s-]/g,'').toUpperCase();
-     const looksLikeIban=/^[A-Z]{2}\\d{2}/.test(compact);
+     const compact=query.replace(/[\s-]/g,'').toUpperCase();
+     const looksLikeIban=/^[A-Z]{2}\d{2}/.test(compact);
      const iban=normalizeEuropeanIban(query);
      if(looksLikeIban&&!iban)throw new Error('Ongeldig of niet-ondersteund Europees IBAN. Controleer het land, de lengte en de controlecijfers.');
-     const filters=(iban?[iban]:query.split(/\\s+/).filter(Boolean)).map(term=>({term}));
+     const filters=(iban?[iban]:query.split(/\s+/).filter(Boolean)).map(term=>({term}));
      const matches=await client.search({ticket:issued.ticket,filters,ibanDetection:true,limit:50});
      setBankMatches(Array.isArray(matches)?matches:matches?.connections||[]);
      setBankSelected(null);setBankDialog(null);
