@@ -3,7 +3,7 @@ import {View,Text,TextInput,Pressable,ScrollView,ActivityIndicator,Linking,Style
 import * as SecureStore from 'expo-secure-store';
 import {StatusBar} from 'expo-status-bar';
 import api from './src/api';
-import {RoutexClient,AccountField} from 'react-native-routex-client';
+import {RoutexClient,AccountField,Result,Dialog,Redirect,RedirectHandle} from 'react-native-routex-client';
 const BLUE='#173c60',GREEN='#2d805f';
 const intro=[['Welkom bij Saldo Slim','Krijg inzicht in je geld en houd grip op je dagelijkse budget.'],['Bereken je bestedingsruimte','Vul je inkomsten, vaste lasten en reserve in en zie wat je per dag kunt besteden.'],['Jouw mogelijkheden','Bekijk je abonnement, vraag hulp aan en beheer als eigenaar je gebruikers.']];
 function Btn({title,onPress,secondary=false}){return <Pressable onPress={onPress} style={[styles.button,secondary&&{backgroundColor:BLUE}]}><Text style={styles.buttonText}>{title}</Text></Pressable>}
@@ -27,7 +27,8 @@ export default function App(){
  async function startBankConnection(){setBusy(true);setNotice('');try{const issued=await api.createBankTicket({service:'Accounts'});
 setBankTicket(issued);const client=new RoutexClient(bankStatus?.environment==="Integration"?{url:new URL("https://integration.yaxi.tech/")}:undefined);const credentials={connectionId:bankSelected.id};const response=await client.accounts({ticket:issued.ticket,credentials,fields:[AccountField.Iban,AccountField.Currency,AccountField.OwnerName]});setBankPassword('');await handleBankResponse(response,issued.ticket,client);}catch(e){setBankPassword('');fail(e)}finally{setBusy(false)}}
 async function handleBankResponse(response,ticket,client){
-  const result=response?.result||response;
+  const kind=response?.constructor?.name;
+  const result=response instanceof Result?response:response?.result||response;
   const jwt=result?.authenticated?.jwt||result?.jwt;
   if(jwt){
     await api.submitBankResult(jwt);
@@ -36,8 +37,8 @@ async function handleBankResponse(response,ticket,client){
     await loadBankStatus();
     return;
   }
-  const redirect=response?.redirect;
-  const redirectHandle=response?.redirectHandle;
+  const redirect=response instanceof Redirect?response:response?.redirect;
+  const redirectHandle=response instanceof RedirectHandle?response:response?.redirectHandle;
   let redirectUrl=redirect?.url||response?.url;
   const context=redirect?.context||redirectHandle?.context||response?.context;
   if(!redirectUrl&&redirectHandle?.handle){
@@ -51,13 +52,13 @@ async function handleBankResponse(response,ticket,client){
     setNotice('Rond de bankautorisatie af en keer terug. Druk daarna op Bankbevestiging controleren.');
     return;
   }
-  const input=response?.dialog?.input||response?.input;
+  const input=(response instanceof Dialog?response.dialog?.input:response?.dialog?.input)||response?.input;
   if(input){
     setBankDialog({response:{...response,input},ticket,kind:'dialog'});
     setNotice('Je bank vraagt om een extra bevestiging.');
     return;
   }
-  setNotice('YAXI-antwoord niet herkend; er zijn geen bankgegevens gekoppeld.');
+  setNotice('YAXI antwoordtype: '+String(kind||'onbekend')+'. Er zijn geen bankgegevens gekoppeld.');
 }
  async function confirmBankDialog(){if(!bankDialog)return;setBusy(true);try{const client=new RoutexClient(bankStatus?.environment==="Integration"?{url:new URL("https://integration.yaxi.tech/")}:undefined);const context=bankDialog.response?.input?.context||bankDialog.response?.context;if(!context)throw Error('Bevestigingscontext ontbreekt.');const response=await client.confirmAccounts({ticket:bankDialog.ticket,context});await handleBankResponse(response,bankDialog.ticket,client);}catch(e){fail(e)}finally{setBusy(false)}}
  async function logout(){await SecureStore.deleteItemAsync('saldoSlimToken');api.setToken(null);setToken('');setMe(null);setStage('auth');setTab('overzicht')}
