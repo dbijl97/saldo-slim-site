@@ -80,10 +80,11 @@ export default function App(){
      redirectUrl=typeof registered==='string'?registered:registered?.url;
    }
    if(redirectUrl){
-     if(!String(redirectUrl).startsWith('https://'))throw new Error('Ongeldige bankredirect-URL.');
+     const redirectAddress=typeof redirectUrl==='string'?redirectUrl:(typeof redirectUrl?.href==='string'?redirectUrl.href:typeof redirectUrl?.toString==='function'?redirectUrl.toString():'');
+     if(!redirectAddress.startsWith('https://'))throw new Error('Ongeldige bankredirect-URL.');
      if(!redirectContext)throw new Error('YAXI gaf geen redirectcontext terug.');
      setBankDialog({ticket,context:redirectContext,kind:'redirect'});
-     await Linking.openURL(redirectUrl);
+     await Linking.openURL(redirectAddress);
      setNotice('Rond de autorisatie af in je bankomgeving. Daarna kun je de bevestiging controleren.');
      return;
    }
