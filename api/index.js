@@ -848,7 +848,7 @@ const server = http.createServer(async (req, res) => {
     if(key==="DELETE /bank-connect/data"){
       const current=await user(req);
       if(!current)return send(res,401,{error:"not_logged_in"});
-      if(current.role!=="owner")return send(res,403,{error:"owner_only"});
+      if(entitlementData(current).effectivePlan!=="Max")return send(res,403,{error:"max_required"});
       const client=await pool.connect();
       try{
         await client.query("begin");
