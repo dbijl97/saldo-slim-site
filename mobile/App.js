@@ -80,7 +80,7 @@ export default function App(){
      redirectUrl=typeof registered==='string'?registered:registered?.url;
    }
    if(redirectUrl){
-     if(!/^https:\\/\\//i.test(redirectUrl))throw new Error('Ongeldige bankredirect-URL.');
+     if(!String(redirectUrl).startsWith('https://'))throw new Error('Ongeldige bankredirect-URL.');
      if(!redirectContext)throw new Error('YAXI gaf geen redirectcontext terug.');
      setBankDialog({ticket,context:redirectContext,kind:'redirect'});
      await Linking.openURL(redirectUrl);
