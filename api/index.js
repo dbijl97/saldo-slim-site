@@ -497,6 +497,18 @@ const server = http.createServer(async (req, res) => {
   const key = `${req.method} ${url.pathname}`;
 
   try {
+    if (key === "GET /bank/enable-banking/status") {
+      const fs = await import("node:fs");
+      const appId = String(process.env.ENABLE_BANKING_APP_ID || "").trim();
+      const path = "/etc/secrets/enablebanking-private.pem";
+      let privateKeyReady = false;
+      try {
+        const keyText = fs.readFileSync(path, "utf8");
+        privateKeyReady = /-----BEGIN (?:RSA )?PRIVATE KEY-----/.test(keyText) && /-----END (?:RSA )?PRIVATE KEY-----/.test(keyText);
+      } catch {}
+      return send(res, 200, {provider:"enable_banking",appConfigured:Boolean(appId),privateKeyReady,ready:Boolean(appId&&privateKeyReady),connected:false,connectionStatus:"api_integration_pending"});
+    }
+
     if (key === "GET /health") {
       let databaseReady = false;
       if (pool) {
