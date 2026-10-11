@@ -22,10 +22,7 @@ test('Bank authorization requires user and state',()=>{
  assert.ok(api.includes('invalid_or_expired_state'));
  assert.ok(enable.includes('enableBankState'));
 });
-test('YAXI validates returned JWT signature',()=>{
- assert.ok(api.includes('invalid_signature'));
- assert.ok(api.includes('timingSafeEqual(expected,supplied)'));
-});
+test('Legacy YAXI routes retired',()=>{assert.ok(!api.includes('/bank-connect/ticket'));assert.ok(!api.includes('YAXI_API_KEY'));});
 test('Web app includes Enable Banking UI',()=>{
  assert.ok(web.includes('id="enableBankConnect"'));
  assert.ok(web.includes('webapp-enable.js'));
