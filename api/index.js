@@ -882,6 +882,14 @@ const server = http.createServer(async (req, res) => {
     }
 
 
+    if (key === "GET /feature-usage/status") {
+      const current=await user(req);if(!current)return send(res,401,{error:"not_logged_in"});
+      const ent=entitlementData(current),period=new Date().toISOString().slice(0,7);
+      const rows=await pool.query("select feature,used from feature_usage where user_id=$1 and period=$2",[current.id,period]);
+      const used=Object.fromEntries(rows.rows.map(r=>[r.feature,Number(r.used)]));
+      return send(res,200,{period,limits:ent.limits,used,features:ent.features});
+    }
+
     if (key === "POST /feature-items/add") {
       const current=await user(req);
       if(!current)return send(res,401,{error:"not_logged_in"});
