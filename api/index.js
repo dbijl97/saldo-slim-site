@@ -980,6 +980,25 @@ const server = http.createServer(async (req, res) => {
       const sum=xs=>Math.round(xs.reduce((n,t)=>n+Math.abs(Number(t.amount.amount)||0),0)*100)/100;
       return send(res,200,{accounts:latest.Accounts||[],balances:latest.Balances?.balances||[],transactions:transactions.slice(0,100),analysis:{income:sum(income),expenses:sum(expenses),net:Math.round((sum(income)-sum(expenses))*100)/100,transactionCount:transactions.length},lastUpdated:rows.rows[0]?.created_at||null});
     }
+    if (key === "POST /feature-items/add") {
+      const current=await user(req);
+      if(!current)return send(res,401,{error:"not_logged_in"});
+      const body=await jsonBody(req),feature=String(body.feature||""),itemId=String(body.itemId||"");
+      if(!["budgets","savingsGoals","fixedBills"].includes(feature)||!/^[-a-zA-Z0-9_]{1,150}$/.test(itemId))return send(res,400,{error:"invalid_items"});
+      const limit=entitlementData(current).limits[feature];
+      const connection=await pool.connect();
+      try{
+        await connection.query("begin");
+        await connection.query("select pg_advisory_xact_lock(hashtext($1),hashtext($2))",[String(current.id),feature]);
+        const existing=await connection.query("select 1 from feature_items where user_id=$1 and feature=$2 and item_id=$3",[current.id,feature,itemId]);
+        if(existing.rowCount){await connection.query("commit");return send(res,200,{allowed:true,duplicate:true});}
+        const count=await connection.query("select count(*)::int as total from feature_items where user_id=$1 and feature=$2",[current.id,feature]);
+        if(limit!==null&&count.rows[0].total>=limit){await connection.query("rollback");return send(res,403,{error:"feature_limit_reached",feature,limit,used:count.rows[0].total});}
+        await connection.query("insert into feature_items(user_id,feature,item_id) values($1,$2,$3)",[current.id,feature,itemId]);
+        await connection.query("commit");return send(res,200,{allowed:true,feature,used:count.rows[0].total+1,limit});
+      }catch(error){await connection.query("rollback");throw error}finally{connection.release()}
+    }
+
     if (key === "POST /feature-items/sync") {
       const current=await user(req);
       if(!current)return send(res,401,{error:"not_logged_in"});
