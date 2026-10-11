@@ -1,4 +1,4 @@
-"""Create a native Saldo Slim icon from a reproducible vector-like design."""
+"""Create a native Lifecoach Saving and Budget icon from a reproducible vector-like design."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
