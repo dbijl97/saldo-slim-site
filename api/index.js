@@ -502,6 +502,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith("/bank/enable-banking/") && !["/bank/enable-banking/status","/bank/enable-banking/application"].includes(url.pathname)) {
       const actor = await user(req);
       if (!actor) return send(res,401,{error:"not_logged_in"});
+      if (!entitlementData(actor).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
       if (!pool) return send(res,503,{error:"database_not_configured"});
       const fs = await import("node:fs/promises");
       const appId = String(process.env.ENABLE_BANKING_APP_ID||"").trim();
