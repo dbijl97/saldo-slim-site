@@ -2,14 +2,14 @@
   "expo": {
     "name": "Lifecoach: Saving&Budget",
     "slug": "saldo-slim",
-    "version": "1.4.7",
+    "version": "1.4.8",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "android": {
       "package": "nl.saldoslim.app",
-      "versionCode": 21
+      "versionCode": 22
     },
     "plugins": [
       "expo-secure-store"
