@@ -114,10 +114,10 @@ const api = {
   syncFeatureItems(feature, items) { return post('/feature-items/sync', { feature, items }); },
   removeFeatureItem(feature, itemId) { return post('/feature-items/remove', { feature, itemId }); },
 
-  getBankData() { return get('/bank-connect/data'); },
-  submitBankResult(jwt) { return post('/bank-connect/result',{jwt}); },
-  getBankConnectStatus() { return get('/bank-connect/status'); },
-  createBankTicket(payload) { return post('/bank-connect/ticket', payload); },
+  getBankConnectStatus() { return get('/bank/enable-banking/status'); },
+  getEnableBankAccounts() { return get('/bank/enable-banking/accounts'); },
+  getEnableBankBalances(uid) { return get('/bank/enable-banking/account/'+encodeURIComponent(uid)+'/balances'); },
+  getEnableBankTransactions(uid) { return get('/bank/enable-banking/account/'+encodeURIComponent(uid)+'/transactions'); },
   getBudgetProfile() {
     return get('/budget-profile');
   },
