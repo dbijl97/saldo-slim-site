@@ -39,6 +39,9 @@ jobs:
             yes | "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" --licenses >/dev/null || true
           fi
 
+      - name: Validate subscription coverage and release links
+        run: node scripts/check-subscription-coverage.cjs
+
       - name: Install dependencies
         working-directory: mobile
         run: npm install
