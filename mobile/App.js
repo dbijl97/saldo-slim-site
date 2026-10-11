@@ -4,7 +4,6 @@ import * as SecureStore from 'expo-secure-store';
 import {StatusBar} from 'expo-status-bar';
 import api from './src/api';
 import FinanceTools from './src/FinanceTools';
-import {RoutexClient,AccountField,Result,Dialog,Redirect,RedirectHandle} from 'react-native-routex-client';
 const EUROPEAN_IBAN_LENGTHS={AL:28,AD:24,AT:20,AZ:28,BE:16,BG:22,BA:20,HR:21,CY:28,CZ:24,DK:18,EE:20,FI:18,FR:27,GE:22,DE:22,GI:23,GR:27,HU:28,IS:26,IE:22,IT:27,LV:21,LI:21,LT:20,LU:20,MT:31,MC:27,MD:24,ME:22,NL:18,MK:19,NO:15,PL:28,PT:25,RO:24,SM:27,RS:22,SK:24,SI:19,ES:24,SE:24,CH:21,TR:26,UA:29,GB:22,VA:22};
 function normalizeEuropeanIban(value){const iban=String(value||'').replace(/\s|[-]/g,'').toUpperCase();if(!/^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(iban))return null;const length=EUROPEAN_IBAN_LENGTHS[iban.slice(0,2)];if(!length||iban.length!==length)return null;const rotated=iban.slice(4)+iban.slice(0,4);let remainder=0;for(const c of rotated){const part=/[A-Z]/.test(c)?String(c.charCodeAt(0)-55):c;for(const digit of part)remainder=(remainder*10+Number(digit))%97;}return remainder===1?iban:null;}
 const BLUE='#173c60',GREEN='#2d805f';
@@ -39,101 +38,24 @@ export default function App(){
  async function loadProfile(){const [p,e,b]=await Promise.all([api.getMe(),api.getEntitlements(),api.getBudgetProfile()]);setMe(p.user||p);setEnt(e);const q=b.budgetProfile||b.profile||b.budget||b;setBudget({income:String(q.income??''),fixed_expenses:String(q.fixed_expenses??q.fixedExpenses??''),reservations:String(q.reservations??''),days_remaining:String(q.days_remaining??q.daysRemaining??30)});}
  useEffect(()=>{(async()=>{try{const t=await SecureStore.getItemAsync('saldoSlimToken');const seen=await SecureStore.getItemAsync('saldoSlimIntro');if(t){api.setToken(t);setToken(t);await loadProfile();setStage('app')}else setStage(seen?'auth':'intro')}catch(e){setStage('auth')}})()},[]);
  async function authenticate(){setBusy(true);setNotice('');try{const response=mode==='register'?await api.register({firstName,lastName,age:Number(age),phone,email,password}):await api.login({email,password});if(mode==='register'&&!response.token){setMode('login');setNotice('Registratie gelukt. Log nu in.');return}const t=response.token;if(!t)throw Error('Log opnieuw in.');await SecureStore.setItemAsync('saldoSlimToken',t);api.setToken(t);setToken(t);await loadProfile();setStage('app')}catch(e){fail(e)}finally{setBusy(false)}}
- async function loadBankStatus(){try{const [status,data]=await Promise.all([api.getBankConnectStatus(),api.getBankData().catch(()=>null)]);setBankStatus(status);setBankData(data)}catch(e){fail(e)}}
- const makeBankClient=()=>new RoutexClient(bankStatus?.environment?.toLowerCase()==='integration'?{url:new URL('https://integration.yaxi.tech/')}:undefined);
- const bankCallback='saldoslim://bank-callback';
- useEffect(()=>{
-   const sub=Linking.addEventListener('url',({url})=>{
-     if(url?.startsWith(bankCallback)){setBankCallbackReceived(true);setNotice('Terug van je bank. Rond de autorisatie af met Bankbevestiging controleren.');}
-   });
-   return ()=>sub.remove();
- },[]);
- async function findBanks(){
-   setBusy(true);setNotice('');
-   try{
-     const query=bankQuery.trim();
-     if(!query)throw new Error('Vul een banknaam of IBAN in.');
-     const issued=await api.createBankTicket({service:'Accounts'});
-     const client=makeBankClient();
-     const compact=query.replace(/[\s-]/g,'').toUpperCase();
-     const looksLikeIban=/^[A-Z]{2}\d{2}/.test(compact);
-     const iban=normalizeEuropeanIban(query);
-     if(looksLikeIban&&!iban)throw new Error('Ongeldig of niet-ondersteund Europees IBAN. Controleer het land, de lengte en de controlecijfers.');
-     const filters=(iban?[iban]:query.split(/\s+/).filter(Boolean)).map(term=>({term}));
-     const matches=await client.search({ticket:issued.ticket,filters,ibanDetection:true,limit:50});
-     setBankMatches(Array.isArray(matches)?matches:matches?.connections||[]);
-     setBankSelected(null);setBankDialog(null);
-     setNotice('Kies je bank uit de resultaten.');
-   }catch(e){fail(e)}finally{setBusy(false)}
+ async function loadBankStatus(){
+  try{
+   const status=await api.getBankConnectStatus();setBankStatus(status);
+   if(!enabled('bankConnect')){setBankData(null);return;}
+   const response=await api.getEnableBankAccounts();
+   const accounts=(response.sessions||[]).flatMap(s=>s.accounts||[]).filter(a=>a.uid);
+   const settled=await Promise.all(accounts.slice(0,10).map(async account=>{
+    const [balances,transactions]=await Promise.allSettled([api.getEnableBankBalances(account.uid),api.getEnableBankTransactions(account.uid)]);
+    return {account,balances:balances.status==='fulfilled'?(balances.value.balances||[]):[],transactions:transactions.status==='fulfilled'?(transactions.value.transactions||[]):[]};
+   }));
+   const transactions=settled.flatMap(x=>x.transactions);
+   const sum=xs=>xs.reduce((n,t)=>n+Math.abs(Number(t.transaction_amount?.amount||0)),0);
+   const income=sum(transactions.filter(t=>Number(t.transaction_amount?.amount)>0));
+   const expenses=sum(transactions.filter(t=>Number(t.transaction_amount?.amount)<0));
+   setBankData({accounts,balances:settled.flatMap(x=>x.balances),transactions,analysis:{income,expenses,net:income-expenses,transactionCount:transactions.length},lastUpdated:new Date().toISOString()});
+  }catch(e){fail(e)}
  }
- async function startBankConnection(){
-   setBusy(true);setNotice('');setBankCallbackReceived(false);
-   try{
-     if(!bankSelected?.id)throw new Error('Kies eerst een bank.');
-     const issued=await api.createBankTicket({service:'Accounts'});
-     const client=makeBankClient();
-     await client.setRedirectUri(bankCallback);
-     const credentials={connectionId:bankSelected.id};
-     if(bankUser.trim())credentials.userId=bankUser.trim();
-     if(bankPassword)credentials.password=bankPassword;
-     const response=await client.accounts({ticket:issued.ticket,credentials,fields:[AccountField.Iban,AccountField.Currency,AccountField.OwnerName]});
-     setBankPassword('');
-     await handleBankResponse(response,issued.ticket,client);
-   }catch(e){setBankPassword('');fail(e)}finally{setBusy(false)}
- }
- async function handleBankResponse(response,ticket,client){
-   const kind=response?.constructor?.name||'Onbekend';
-   const result=response instanceof Result?response:response?.result;
-   const jwt=result?.jwt||result?.authenticated?.jwt;
-   if(jwt){
-     await api.submitBankResult(jwt);
-     setBankDialog(null);setBankDialogValue('');setBankCallbackReceived(false);
-     setNotice('Bankrekening veilig gekoppeld.');
-     await loadBankStatus();
-     return;
-   }
-   const redirect=response instanceof Redirect?response:response?.redirect;
-   const redirectHandle=response instanceof RedirectHandle?response:response?.redirectHandle;
-   let redirectUrl=redirect?.url;
-   const redirectContext=redirect?.context||redirectHandle?.context;
-   if(redirectHandle?.handle){
-     const registered=await client.registerRedirectUri({ticket,handle:redirectHandle.handle,redirectUri:bankCallback});
-     redirectUrl=typeof registered==='string'?registered:registered?.url;
-   }
-   if(redirectUrl){
-     const redirectAddress=typeof redirectUrl==='string'?redirectUrl:(typeof redirectUrl?.href==='string'?redirectUrl.href:typeof redirectUrl?.toString==='function'?redirectUrl.toString():'');
-     if(!redirectAddress.startsWith('https://'))throw new Error('Ongeldige bankredirect-URL.');
-     if(!redirectContext)throw new Error('YAXI gaf geen redirectcontext terug.');
-     setBankDialog({ticket,context:redirectContext,kind:'redirect'});
-     await Linking.openURL(redirectAddress);
-     setNotice('Rond de autorisatie af in je bankomgeving. Daarna kun je de bevestiging controleren.');
-     return;
-   }
-   const input=response instanceof Dialog?response.input:response?.dialog?.input||response?.input;
-   if(input?.context){
-     setBankDialog({ticket,context:input.context,kind:'dialog',input});
-     setBankDialogValue('');
-     setNotice(response?.message||'Bevestig de aanvraag bij je bank.');
-     return;
-   }
-   throw new Error('Onbekend YAXI-antwoordtype: '+kind+'. Er is niets gekoppeld.');
- }
- async function confirmBankDialog(){
-   if(!bankDialog||busy)return;
-   setBusy(true);setNotice('');
-   try{
-     const client=makeBankClient();
-     const {ticket,context,input,kind}=bankDialog;
-     if(!context)throw new Error('Bevestigingscontext ontbreekt.');
-     const inputKind=input?.constructor?.name?.toLowerCase()||'';
-     const isChoice=inputKind.includes('selection')||Array.isArray(input?.options)||Array.isArray(input?.choices);
-     const isField=inputKind.includes('field')||input?.type==='field';
-     const response=(kind==='dialog'&&(isChoice||isField))
-       ?await client.respondAccounts({ticket,context,response:bankDialogValue})
-       :await client.confirmAccounts({ticket,context});
-     await handleBankResponse(response,ticket,client);
-   }catch(e){fail(e)}finally{setBusy(false)}
- }
+ async function openEnableBanking(){await Linking.openURL('https://saldo-slim.onrender.com/webapp.html#bank');}
  async function logout(){await SecureStore.deleteItemAsync('saldoSlimToken');api.setToken(null);setToken('');setMe(null);setStage('auth');setTab('overzicht')}
  async function saveBudget(){setBusy(true);setNotice('');try{await api.updateBudgetProfile({income:n(budget.income),fixed_expenses:n(budget.fixed_expenses),reservations:n(budget.reservations),days_remaining:Math.max(1,n(budget.days_remaining))});setNotice('Je financiële profiel is opgeslagen.')}catch(e){fail(e)}finally{setBusy(false)}}
  async function loadAdmin(){setBusy(true);setNotice('');try{const [overview,users,subscriptions,payouts,support,audit]=await Promise.all([api.getAdminOverview(),api.getAdminUsers(),api.getAdminSubscriptions(),api.getAdminPayouts(),api.getAdminSupport(),owner?api.getAdminAudit():Promise.resolve({audit:[]})]);setAdmin({overview,users:users.users||[],subscriptions:subscriptions.subscriptions||[],payouts:payouts.payouts||[],support:support.tickets||[],audit:audit.audit||[]})}catch(e){fail(e)}finally{setBusy(false)}}
@@ -151,7 +73,7 @@ export default function App(){
  {tab==='scenario'&&<Card title='Wat-als-berekening'>{enabled('scenarios3')?<><Field label='Extra uitgave (€)' value={scenario} onChangeText={setScenario} keyboardType='decimal-pad'/><Text style={styles.amount}>€ {(daily-n(scenario)/Math.max(1,n(budget.days_remaining))).toFixed(2)}</Text><Text>Dagbudget na deze extra uitgave.</Text>{enabled('advancedScenarios')&&<Text style={styles.muted}>Max: onbeperkt scenario's doorrekenen.</Text>}</>:<Text>Scenario's zijn beschikbaar vanaf Plus.</Text>}</Card>}
  {tab==='analyse'&&<Card title='Financiële analyse'>{enabled('analyses')?<><Text>Inkomsten: € {n(budget.income).toFixed(2)}</Text><Text>Vaste lasten: € {n(budget.fixed_expenses).toFixed(2)}</Text><Text>Reserve: € {n(budget.reservations).toFixed(2)}</Text><Text>Vrij besteedbaar: € {(n(budget.income)-n(budget.fixed_expenses)-n(budget.reservations)).toFixed(2)}</Text><Text>Percentage vaste lasten: {n(budget.income)>0?(100*n(budget.fixed_expenses)/n(budget.income)).toFixed(1):'0'}%</Text></>:<Text>Analyses zijn beschikbaar vanaf Pro.</Text>}</Card>}
  {tab==='waarschuwingen'&&<Card title='Budgetmeldingen'><Text style={styles.body}>Jouw abonnement: {privileged?'Beheerder':plan.toUpperCase()}</Text><Text style={styles.muted}>Deze maand gebruikt: {alertsThisMonth.length} van {Number.isFinite(alertLimit)?alertLimit:'onbeperkt'} controles.</Text><Field label='Waarschuw bij dagbudget onder (€)' value={noticeThreshold} onChangeText={setNoticeThreshold} keyboardType='decimal-pad'/><Text style={styles.body}>{daily<0?'Let op: je budget is negatief.':daily<n(noticeThreshold)?'Waarschuwing: je dagbudget is lager dan de grens.':'Je dagbudget ligt boven de ingestelde grens.'}</Text><Btn title='Budgetcontrole uitvoeren en bewaren' onPress={recordBudgetAlert}/>{alertsThisMonth.slice().reverse().slice(0,10).map((a,i)=><Text key={i} style={styles.muted}>{a.createdAt.slice(0,10)} · {a.message}</Text>)}{!privileged&&<><Text style={styles.muted}>Basis 3 · Plus 10 · Pro 25 · Max onbeperkt per maand.</Text><Btn secondary title='Upgrade voor meer meldingen' onPress={upgrade}/></>}<Text style={styles.muted}>Dit zijn controles binnen de app, geen pushmeldingen. De teller wordt op dit apparaat opgeslagen.</Text></Card>}
- {tab==='bankconnect'&&<Card title='Saldo Slim BankConnect (YAXI)'>{!enabled('bankConnect')?<Text>BankConnect is beschikbaar voor Pro en Max.</Text>:<><Text style={styles.body}>Bankrekeningen, saldi en transacties voor je financiële planning.</Text><Text style={styles.muted}>API: {bankStatus?.configured?'Geconfigureerd':'Niet bevestigd'}</Text><Text style={styles.muted}>Bankautorisatie: {Array.isArray(bankData?.accounts)&&bankData.accounts.length>0?'bankgegevens ontvangen via YAXI':'nog geen bankrekening gekoppeld'}.</Text>{!(Array.isArray(bankData?.accounts)&&bankData.accounts.length>0)&&<Text style={styles.muted}>Bankgegevens worden pas getoond na veilige autorisatie via YAXI.</Text>}<Text>{enabled('bankAdvancedSettings')?'Max: uitgebreide instellingen':'Pro: beperkte instellingen'}</Text>{bankData?.lastUpdated&&<><Text style={styles.body}>Laatst bijgewerkt: {new Date(bankData.lastUpdated).toLocaleDateString('nl-NL')}</Text><Text>Inkomsten: € {bankData.analysis?.income?.toFixed(2)}</Text><Text>Uitgaven: € {bankData.analysis?.expenses?.toFixed(2)}</Text><Text>Netto: € {bankData.analysis?.net?.toFixed(2)}</Text><Text>Transacties: {bankData.analysis?.transactionCount}</Text>{(bankData.accounts||[]).map((a,i)=><Text key={i}>{a.iban||'Rekening'} ({a.currency||'EUR'})</Text>)}{(bankData.transactions||[]).slice(0,15).map((t,i)=><Text key={i}>{t.bookingDate||''} · {t.creditor?.name||t.debtor?.name||'Transactie'} · {t.amount?.amount} {t.amount?.currency}</Text>)}</>}<Field label='Zoek je bank (naam of IBAN)' value={bankQuery} onChangeText={setBankQuery}/><Btn title='Zoek banken' onPress={findBanks}/>{bankMatches.slice(0,12).map((b,i)=><Btn key={i} secondary title={b.name||b.displayName||b.id} onPress={()=>{setBankSelected(b);setBankDialog(null)}}/>)}{bankSelected&&<><Text style={styles.body}>Gekozen bank: {bankSelected.name||bankSelected.displayName}</Text><Field label='Gebruikersnaam bank (indien vereist)' value={bankUser} onChangeText={setBankUser}/><Field label='Bankwachtwoord (indien vereist)' value={bankPassword} secureTextEntry onChangeText={setBankPassword}/><Btn title='Bankverbinding starten' onPress={startBankConnection}/></>}{bankDialog&&<><Text style={styles.body}>{bankDialog.kind==='redirect'?(bankCallbackReceived?'Terug van bank. Controleer de bevestiging.':'Voltooi eerst de autorisatie bij je bank.'):'Bevestiging van de bank'}</Text>{bankDialog.kind==='dialog'&&bankDialog.input&&(bankDialog.input?.constructor?.name==='Field'||bankDialog.input?.constructor?.name==='Selection'||Array.isArray(bankDialog.input?.options))&&<><Field label='Antwoord voor de bank' value={bankDialogValue} onChangeText={setBankDialogValue}/>{(bankDialog.input?.options||bankDialog.input?.choices||[]).map((o,i)=><Btn key={i} secondary title={String(o.label||o.name||o.key||o.value||o)} onPress={()=>setBankDialogValue(String(o.key||o.value||o))}/>)}</>}<Btn title='Bankbevestiging controleren' onPress={confirmBankDialog}/></>}<Btn title='Status en transacties vernieuwen' onPress={loadBankStatus}/></>}</Card>}
+ {tab==='bankconnect'&&<Card title='Bankkoppeling · Enable Banking'>{!enabled('bankConnect')?<Text>Automatische bankkoppeling is beschikbaar voor Pro en Max. Owner en moderator hebben volledige toegang.</Text>:<><Text style={styles.body}>Koppel je bank veilig via Enable Banking. Je geeft toestemming in de beveiligde omgeving van je bank. Je bankwachtwoord wordt niet in de app gevraagd.</Text><Text style={styles.muted}>Provider: {bankStatus?.configured?'Beschikbaar':'Configuratie nog niet bevestigd'}</Text><Text style={styles.muted}>Gekoppelde rekeningen: {bankData?.accounts?.length||0}</Text><Btn title='Bank koppelen via Enable Banking' onPress={openEnableBanking}/><Btn title='Saldi en transacties vernieuwen' onPress={loadBankStatus}/>{(bankData?.balances||[]).map((b,i)=><Text key={'balance'+i}>Saldo: {b.balance_amount?.amount||'?'} {b.balance_amount?.currency||'EUR'}</Text>)}{bankData?.analysis&&<><Text>Inkomsten: € {bankData.analysis.income.toFixed(2)}</Text><Text>Uitgaven: € {bankData.analysis.expenses.toFixed(2)}</Text><Text>Netto: € {bankData.analysis.net.toFixed(2)}</Text><Text>Transacties: {bankData.analysis.transactionCount}</Text></>}{(bankData?.transactions||[]).slice(0,15).map((t,i)=><Text key={'transaction'+i}>{t.booking_date||t.transaction_date||''} · {(t.remittance_information||[]).join(' ')||'Transactie'} · {t.transaction_amount?.amount} {t.transaction_amount?.currency}</Text>)}</>}</Card>}
  {tab==='financien'&&<FinanceTools bankData={enabled('bankConnect')?bankData:null} userKey={me?.id||me?.email||email} access={financeAccess} onUpgrade={upgrade}/>}
  {tab==='support'&&<Card title='Contact met ondersteuning'><Field label='Onderwerp' value={subject} onChangeText={setSubject}/><Field label='Bericht' value={message} onChangeText={setMessage}/><Btn title='Verstuur bericht' onPress={sendSupport}/></Card>}
  {tab==='admin'&&privileged&&<><Card title='Beheer'><Text style={styles.body}>Rol: {owner?'Eigenaar':'Moderator'}</Text><Btn title='Vernieuw gegevens' onPress={loadAdmin}/></Card><Card title='Dashboard'><Text>Gebruikers: {admin.overview?.totalUsers??'—'}</Text><Text>Abonnementen: {admin.overview?.totalSubscriptions??'—'}</Text></Card><Card title='Gebruikers'>{(admin.users||[]).map(u=><View key={u.id} style={styles.entry}><Text>{u.name} — {u.email}</Text><Text>{u.role} · {u.status}</Text>{owner&&u.role!=='owner'&&<><Btn title={u.role==='moderator'?'Maak gebruiker':'Maak moderator'} onPress={()=>changeRole(u.id,u.role==='moderator'?'user':'moderator')}/><Btn secondary title={u.status==='active'?'Deactiveer':'Activeer'} onPress={()=>changeStatus(u.id,u.status==='active'?'disabled':'active')}/></>}</View>)}</Card><Card title='Abonnementen'><Text>{(admin.subscriptions||[]).length} abonnementen</Text></Card><Card title='Uitbetalingen'><Text>{(admin.payouts||[]).length} uitbetalingen</Text></Card><Card title='Supporttickets'><Text>{(admin.support||[]).length} tickets</Text></Card>{owner&&<Card title='Auditlog'><Text>{(admin.audit||[]).length} regels</Text></Card>}</>}
