@@ -293,6 +293,8 @@ async function schema() {
 
     create index if not exists support_tickets_status_idx on support_tickets(status);
     create index if not exists audit_log_created_at_idx on audit_log(created_at desc);
+    create table if not exists enable_bank_pending(state_hash text primary key,user_id uuid not null references users(id) on delete cascade,expires_at timestamptz not null,used_at timestamptz);
+    create table if not exists enable_bank_sessions(user_id uuid not null references users(id) on delete cascade,session_id text not null,accounts jsonb not null default '[]'::jsonb,created_at timestamptz not null default now(),primary key(user_id,session_id));
     create table if not exists bank_tickets(
       id uuid primary key, user_id uuid not null references users(id) on delete cascade,
       service text not null, created_at timestamptz not null default now(),
@@ -497,6 +499,73 @@ const server = http.createServer(async (req, res) => {
   const key = `${req.method} ${url.pathname}`;
 
   try {
+    if (url.pathname.startsWith("/bank/enable-banking/") && !["/bank/enable-banking/status","/bank/enable-banking/application"].includes(url.pathname)) {
+      const actor = await user(req);
+      if (!actor) return send(res,401,{error:"not_logged_in"});
+      if (!pool) return send(res,503,{error:"database_not_configured"});
+      const fs = await import("node:fs/promises");
+      const appId = String(process.env.ENABLE_BANKING_APP_ID||"").trim();
+      let pem;
+      try {pem=await fs.readFile("/etc/secrets/enablebanking-private.pem","utf8");}catch{return send(res,503,{error:"enable_banking_key_missing"});}
+      if(!appId)return send(res,503,{error:"enable_banking_app_missing"});
+      const enc=x=>Buffer.from(JSON.stringify(x)).toString("base64url");
+      const now=Math.floor(Date.now()/1000),base=enc({typ:"JWT",alg:"RS256",kid:appId})+"."+enc({iss:"enablebanking.com",aud:"api.enablebanking.com",iat:now,exp:now+300});
+      const jwt=base+"."+crypto.sign("RSA-SHA256",Buffer.from(base),pem).toString("base64url");
+      const eb=async(path,method="GET",data)=>{
+        const response=await fetch("https://api.enablebanking.com"+path,{method,headers:{authorization:"Bearer "+jwt,accept:"application/json",...(data?{"content-type":"application/json"}:{})},...(data?{body:JSON.stringify(data)}:{}),signal:AbortSignal.timeout(20000)});
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok){const e=new Error("enable_banking_upstream_"+response.status);e.statusCode=502;throw e;}
+        return result;
+      };
+      if(key==="GET /bank/enable-banking/banks"){
+        const country=String(url.searchParams.get("country")||"NL").toUpperCase();
+        if(!/^[A-Z]{2}$/.test(country))return send(res,400,{error:"invalid_country"});
+        const result=await eb("/aspsps?country="+country);
+        return send(res,200,{banks:(result.aspsps||[]).map(x=>({name:x.name,country:x.country})).filter(x=>x.name&&x.country)});
+      }
+      if(key==="POST /bank/enable-banking/start"){
+        const body=await jsonBody(req),name=String(body.name||"").trim(),country=String(body.country||"").toUpperCase();
+        if(!name||name.length>120||!/^[A-Z]{2}$/.test(country))return send(res,400,{error:"invalid_bank"});
+        const known=await eb("/aspsps?country="+country);
+        if(!(known.aspsps||[]).some(x=>x.name===name&&x.country===country))return send(res,400,{error:"unknown_bank"});
+        const state=crypto.randomBytes(32).toString("base64url");
+        await pool.query("insert into enable_bank_pending(state_hash,user_id,expires_at) values($1,$2,now()+interval '15 minutes')",[th(state),actor.id]);
+        try{
+          const result=await eb("/auth","POST",{access:{valid_until:new Date(Date.now()+7*86400000).toISOString()},aspsp:{name,country},state,redirect_url:"https://saldo-slim.onrender.com/bank-callback.html",psu_type:"personal",language:"nl",psu_id:actor.id});
+          if(!/^https:\/\//.test(result.url||""))throw Error("invalid_bank_redirect");
+          return send(res,200,{url:result.url,state});
+        }catch(e){await pool.query("delete from enable_bank_pending where state_hash=$1",[th(state)]);throw e;}
+      }
+      if(key==="POST /bank/enable-banking/complete"){
+        const body=await jsonBody(req),state=String(body.state||""),code=String(body.code||"");
+        if(!/^[A-Za-z0-9_-]{32,128}$/.test(state)||!code||code.length>2048)return send(res,400,{error:"invalid_callback"});
+        const pending=await pool.query("update enable_bank_pending set used_at=now() where state_hash=$1 and user_id=$2 and used_at is null and expires_at>now() returning state_hash",[th(state),actor.id]);
+        if(!pending.rowCount)return send(res,400,{error:"invalid_or_expired_state"});
+        const result=await eb("/sessions","POST",{code});
+        if(!result.session_id||!Array.isArray(result.accounts))return send(res,502,{error:"invalid_enable_banking_session"});
+        await pool.query("insert into enable_bank_sessions(user_id,session_id,accounts) values($1,$2,$3::jsonb) on conflict(user_id,session_id) do update set accounts=excluded.accounts",[actor.id,result.session_id,JSON.stringify(result.accounts)]);
+        return send(res,200,{connected:true,accounts:result.accounts.length});
+      }
+      if(key==="GET /bank/enable-banking/accounts"){
+        const result=await pool.query("select session_id,accounts,created_at from enable_bank_sessions where user_id=$1 order by created_at desc",[actor.id]);
+        return send(res,200,{sessions:result.rows});
+      }
+      const match=url.pathname.match(/^\/bank\/enable-banking\/account\/([a-f0-9-]{36})\/(balances|transactions)$/i);
+      if(req.method==="GET"&&match){
+        const uid=match[1],kind=match[2];
+        const owned=await pool.query("select 1 from enable_bank_sessions where user_id=$1 and accounts @> $2::jsonb limit 1",[actor.id,JSON.stringify([{uid}])]);
+        if(!owned.rowCount)return send(res,403,{error:"account_not_authorized"});
+        let path="/accounts/"+uid+"/"+kind;
+        if(kind==="transactions"){
+          const start=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+          path+="?date_from="+start;
+        }
+        const result=await eb(path);
+        return send(res,200,result);
+      }
+      return send(res,404,{error:"not_found"});
+    }
+
     if (key === "GET /bank/enable-banking/application") {
       const actor = await user(req);
       if (!actor) return send(res, 401, {error:"not_logged_in"});
