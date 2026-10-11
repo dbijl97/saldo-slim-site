@@ -604,7 +604,7 @@ const server = http.createServer(async (req, res) => {
         const keyText = fs.readFileSync(path, "utf8");
         privateKeyReady = /-----BEGIN (?:RSA )?PRIVATE KEY-----/.test(keyText) && /-----END (?:RSA )?PRIVATE KEY-----/.test(keyText);
       } catch {}
-      return send(res, 200, {provider:"enable_banking",appConfigured:Boolean(appId),privateKeyReady,ready:Boolean(appId&&privateKeyReady),connected:false,connectionStatus:"api_integration_pending"});
+      return send(res, 200, {provider:"enable_banking",appConfigured:Boolean(appId),privateKeyReady,ready:Boolean(appId&&privateKeyReady),connected:null,connectionStatus:"check_authenticated_accounts_endpoint"});
     }
 
     if (key === "GET /health") {
@@ -882,105 +882,6 @@ const server = http.createServer(async (req, res) => {
     }
 
 
-    // Read-only YAXI integration: tickets never authorize payments.
-    if (key === "GET /bank-connect/status") {
-      const current = await user(req);
-      if (!current) return send(res,401,{error:"not_logged_in"});
-      const rights=entitlementData(current);
-      return send(res,200,{provider:"YAXI",configured:Boolean(process.env.YAXI_KEY_ID&&process.env.YAXI_API_KEY),environment:"Production",allowed:rights.features.bankConnect,advanced:rights.features.bankAdvancedSettings,services:["Accounts","Balances","Transactions"],connectionEstablished:false});
-    }
-    if (key === "POST /bank-connect/ticket") {
-      const current = await user(req);
-      if (!current) return send(res,401,{error:"not_logged_in"});
-      if (!entitlementData(current).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
-      const kid=process.env.YAXI_KEY_ID,secret=process.env.YAXI_API_KEY;
-      if (!kid||!secret) return send(res,503,{error:"bank_provider_not_configured"});
-      const body=await jsonBody(req);
-      const service=String(body.service||"");
-      if (!["Accounts","Balances","Transactions"].includes(service)) return send(res,400,{error:"read_only_services_only"});
-      let data=null;
-      if(service==="Transactions") {
-        const iban=String(body.iban||"").replace(/\s/g,"").toUpperCase();
-        const currency=String(body.currency||"EUR").toUpperCase();
-        const from=String(body.from||"");
-        if(!/^[A-Z]{2}[A-Z0-9]{13,32}$/.test(iban)||!/^[A-Z]{3}$/.test(currency)||!/^\d{4}-\d{2}-\d{2}$/.test(from)) return send(res,400,{error:"invalid_transaction_parameters"});
-        data={account:{iban,currency},range:{from}};
-      }
-      const id=crypto.randomUUID(),exp=Math.floor(Date.now()/1000)+600;
-      const b64=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
-      const h=b64({alg:'HS256',typ:'JWT',kid});
-      const p=b64({data:{service,id,data},exp});
-      let keyBytes;
-      try { keyBytes=Buffer.from(secret,'base64');if(keyBytes.length<16) throw Error('invalid secret'); }
-      catch {return send(res,503,{error:'bank_provider_key_invalid'});}
-      const signature=crypto.createHmac('sha256',keyBytes).update(h+'.'+p).digest('base64url');
-      await pool.query('insert into bank_tickets(id,user_id,service,expires_at) values($1,$2,$3,to_timestamp($4))',[id,current.id,service,exp]);
-      return send(res,200,{ticket:h+'.'+p+'.'+signature,ticketId:id,service,expiresAt:new Date(exp*1000).toISOString()});
-    }
-
-    if (key === "POST /bank-connect/result") {
-      const current=await user(req);
-      if(!current) return send(res,401,{error:"not_logged_in"});
-      if(!entitlementData(current).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
-      const body=await jsonBody(req),token=String(body.jwt||"");
-      if(token.length>400000) return send(res,413,{error:"result_too_large"});
-      const parts=token.split(".");
-      if(parts.length!==3) return send(res,400,{error:"invalid_result"});
-      let header,payload;
-      try{header=JSON.parse(Buffer.from(parts[0],"base64url"));payload=JSON.parse(Buffer.from(parts[1],"base64url"));}
-      catch{return send(res,400,{error:"invalid_result"});}
-      if(header.alg!=="HS256"||header.kid!==process.env.YAXI_KEY_ID||!process.env.YAXI_API_KEY) return send(res,400,{error:"invalid_result"});
-      const keyBytes=Buffer.from(process.env.YAXI_API_KEY,"base64");
-      const expected=crypto.createHmac("sha256",keyBytes).update(parts[0]+"."+parts[1]).digest();
-      let supplied;
-      try{supplied=Buffer.from(parts[2],"base64url");}catch{return send(res,400,{error:"invalid_result"});}
-      if(expected.length!==supplied.length||!crypto.timingSafeEqual(expected,supplied)) return send(res,400,{error:"invalid_signature"});
-      const ticketId=String(payload?.data?.ticketId||"");
-      const timestamp=Date.parse(payload?.data?.timestamp||"");
-      if(!/^[0-9a-f-]{36}$/i.test(ticketId)||!Number.isFinite(timestamp)||Math.abs(Date.now()-timestamp)>15*60*1000|| (payload.exp&&payload.exp*1000<Date.now())) return send(res,400,{error:"expired_or_invalid_result"});
-      const tx=await pool.connect();
-      try{
-        await tx.query("begin");
-        const ticket=await tx.query("select service from bank_tickets where id=$1 and user_id=$2 and used_at is null and expires_at>now() for update",[ticketId,current.id]);
-        if(!ticket.rowCount){await tx.query("rollback");return send(res,409,{error:"ticket_not_found_or_used"});}
-        const service=ticket.rows[0].service;
-        const data=payload.data.data;
-        if(service==="Accounts"&&!Array.isArray(data)) throw Error("invalid_accounts");
-        if(service==="Balances"&&!Array.isArray(data?.balances)) throw Error("invalid_balances");
-        if(service==="Transactions"&&!Array.isArray(data)) throw Error("invalid_transactions");
-        await tx.query("insert into bank_results(id,user_id,ticket_id,service,result) values($1,$2,$3,$4,$5::jsonb)",[crypto.randomUUID(),current.id,ticketId,service,JSON.stringify(data)]);
-        await tx.query("update bank_tickets set used_at=now() where id=$1",[ticketId]);
-        await tx.query("commit");
-        return send(res,200,{ok:true,service});
-      }catch(err){await tx.query("rollback");if(String(err.message).startsWith("invalid_")) return send(res,400,{error:"invalid_result_data"});throw err;}
-      finally{tx.release();}
-    }
-    if(key==="DELETE /bank-connect/data"){
-      const current=await user(req);
-      if(!current)return send(res,401,{error:"not_logged_in"});
-      if(entitlementData(current).effectivePlan!=="Max")return send(res,403,{error:"max_required"});
-      const client=await pool.connect();
-      try{
-        await client.query("begin");
-        const results=await client.query("delete from bank_results where user_id=$1",[current.id]);
-        const tickets=await client.query("delete from bank_tickets where user_id=$1",[current.id]);
-        await client.query("commit");
-        return send(res,200,{ok:true,deletedResults:results.rowCount,deletedTickets:tickets.rowCount});
-      }catch(e){await client.query("rollback");throw e;}finally{client.release();}
-    }
-    if(key==="GET /bank-connect/data"){
-      const current=await user(req);
-      if(!current) return send(res,401,{error:"not_logged_in"});
-      if(!entitlementData(current).features.bankConnect) return send(res,403,{error:"pro_or_max_required"});
-      const rows=await pool.query("select service,result,created_at from bank_results where user_id=$1 order by created_at desc limit 100",[current.id]);
-      const latest={};
-      for(const row of rows.rows) if(!latest[row.service]) latest[row.service]=row.result;
-      const transactions=Array.isArray(latest.Transactions)?latest.Transactions:[];
-      const expenses=transactions.filter(t=>Number(t?.amount?.amount)<0);
-      const income=transactions.filter(t=>Number(t?.amount?.amount)>0);
-      const sum=xs=>Math.round(xs.reduce((n,t)=>n+Math.abs(Number(t.amount.amount)||0),0)*100)/100;
-      return send(res,200,{accounts:latest.Accounts||[],balances:latest.Balances?.balances||[],transactions:transactions.slice(0,100),analysis:{income:sum(income),expenses:sum(expenses),net:Math.round((sum(income)-sum(expenses))*100)/100,transactionCount:transactions.length},lastUpdated:rows.rows[0]?.created_at||null});
-    }
     if (key === "POST /feature-items/add") {
       const current=await user(req);
       if(!current)return send(res,401,{error:"not_logged_in"});
@@ -1417,7 +1318,7 @@ const server = http.createServer(async (req, res) => {
         "/admin/support": ["tickets", "select t.id,t.subject,t.status,t.created_at,u.email as \"userEmail\" from support_tickets t join users u on u.id=t.user_id order by t.created_at desc limit 500"],
         "/admin/audit": ["audit", "select a.created_at as \"createdAt\",a.action,a.target_type as \"targetType\",a.target_id as \"targetId\",u.email as \"actorEmail\" from audit_log a left join users u on u.id=a.actor_user_id order by a.created_at desc limit 500"]
       };
-      if (key === "GET /admin/feature-limits") return send(res,200,{limits:FEATURE_LIMITS,policy:"reference",enforcement:"consume_endpoint_available_client_integration_required",bankConnect:"separately_controlled"});
+      if (key === "GET /admin/feature-limits") return send(res,200,{limits:FEATURE_LIMITS,policy:"reference",enforcement:"server_checks_for_integrated_routes",bankConnect:"enable_banking"});
       if (key === "GET /admin/overview") {
         const counts = await Promise.all(["users","subscriptions","payouts","support_tickets"].map(table => pool.query("select count(*)::int as count from " + table)));
         return send(res,200,{totalUsers:counts[0].rows[0].count,totalSubscriptions:counts[1].rows[0].count,pendingPayouts:counts[2].rows[0].count,openSupportTickets:counts[3].rows[0].count,paddleApiConfigured:false});
