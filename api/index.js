@@ -497,6 +497,34 @@ const server = http.createServer(async (req, res) => {
   const key = `${req.method} ${url.pathname}`;
 
   try {
+    if (key === "GET /bank/enable-banking/application") {
+      const actor = await user(req);
+      if (!actor) return send(res, 401, {error:"not_logged_in"});
+      if (!["owner","moderator"].includes(actor.role)) return send(res,403,{error:"forbidden"});
+      const fs = await import("node:fs/promises");
+      const appId = String(process.env.ENABLE_BANKING_APP_ID || "").trim();
+      if (!appId) return send(res,503,{error:"enable_banking_app_not_configured"});
+      let pem;
+      try { pem = await fs.readFile("/etc/secrets/enablebanking-private.pem","utf8"); }
+      catch { return send(res,503,{error:"enable_banking_private_key_missing"}); }
+      const encode = value => Buffer.from(JSON.stringify(value)).toString("base64url");
+      const now = Math.floor(Date.now()/1000);
+      const head = encode({typ:"JWT",alg:"RS256",kid:appId});
+      const payload = encode({iss:"enablebanking.com",aud:"api.enablebanking.com",iat:now,exp:now+300});
+      const signingInput = head+"."+payload;
+      let signature;
+      try { signature = crypto.sign("RSA-SHA256",Buffer.from(signingInput),pem).toString("base64url"); }
+      catch { return send(res,503,{error:"enable_banking_private_key_invalid"}); }
+      try {
+        const response = await fetch("https://api.enablebanking.com/application",{
+          method:"GET",headers:{authorization:"Bearer "+signingInput+"."+signature,accept:"application/json"},signal:AbortSignal.timeout(12000)
+        });
+        const body = await response.json().catch(()=>({}));
+        if (!response.ok) return send(res,502,{provider:"enable_banking",authenticated:false,upstreamStatus:response.status,error:"enable_banking_auth_failed"});
+        return send(res,200,{provider:"enable_banking",authenticated:true,application:body});
+      } catch {return send(res,502,{provider:"enable_banking",authenticated:false,error:"enable_banking_unreachable"});}
+    }
+
     if (key === "GET /bank/enable-banking/status") {
       const fs = await import("node:fs");
       const appId = String(process.env.ENABLE_BANKING_APP_ID || "").trim();
